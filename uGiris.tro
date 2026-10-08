@@ -1,0 +1,704 @@
+uses uAnaSayfa;
+uses uUrunListesi;
+uses uUrunEkle;
+uses uIlanlar;
+uses uNgoAna;
+uses uNgoRezervasyon;
+uses uMarketRezervasyon;
+
+var
+  GirisForm    : TclForm;
+  MainScrollBox: TclVertScrollBox; // Eklenen kaydırılabilir ana taşıyıcı
+  ImgLogo      : TclImage; 
+  PnlGiris     : TclProPanel;
+  LblHosgeldin : TclProLabel;
+  LblBaslikG   : TclProLabel;
+  LblEposta    : TclProLabel;
+  EdtKullanici : TclProEdit;
+  LblSifreG    : TclProLabel;
+  EdtSifre     : TclProEdit;
+  BtnGiris     : TclProButton;
+  LblKayit     : TclProLabel;
+  LblHataG     : TclProLabel;
+  LblHatirla   : TclProLabel;   
+  HatirlaAcik  : Boolean;       
+  TRSonucG     : String;
+  RestG        : TclRest;
+  FB_URL_G     : String;
+  SayacUser    : Integer;
+  AktifRol     : String;
+  AktifAd      : String;
+  AktifKullaniciAdi : String;
+
+  // --- KAYIT EKRANI İÇİN YENİ DEĞİŞKENLER ---
+  PnlKayit       : TclProPanel;
+  LblBaslikK     : TclProLabel;
+  LblKAd         : TclProLabel;
+  EdtKAd         : TclProEdit;
+  LblKEposta     : TclProLabel;
+  EdtKEposta     : TclProEdit;
+  LblKSifre      : TclProLabel;
+  EdtKSifre      : TclProEdit;
+  LblKRol        : TclProLabel;
+  PnlRolWrapper  : TclProPanel;
+  CmbKRol        : TclComboBox;
+  BtnYeniKayit   : TclProButton;
+  LblZatenVar    : TclProLabel;
+  LblHataK       : TclProLabel;
+  SayacYeniKayit : Integer;
+
+void TRDegistirG(AKod : String; AHarf : String);
+{
+  while (Pos(AKod, TRSonucG) > 0)
+  {
+    TRSonucG = Copy(TRSonucG, 1, Pos(AKod, TRSonucG) - 1) + AHarf + Copy(TRSonucG, Pos(AKod, TRSonucG) + 2, 100000);
+  }
+}
+
+void TRG(AMetin : String);
+{
+  TRSonucG = AMetin;
+  TRDegistirG('g%', Chr(287));
+  TRDegistirG('G%', Chr(286));
+  TRDegistirG('s%', Chr(351));
+  TRDegistirG('S%', Chr(350));
+  TRDegistirG('i%', Chr(305));
+  TRDegistirG('I%', Chr(304));
+}
+
+// ---- YENİ: Clomosy Dahili SQLite Nesnesi ile Hazırlık ----
+void SQLiteHazirla;
+{
+  try
+    Clomosy.DBSQLiteConnect(Clomosy.AppBasePath + 'replate.db', '');
+    Clomosy.DBSQLiteQuery.SQL.Text = 'CREATE TABLE IF NOT EXISTS TBLHATIRLA (Eposta TEXT, Sifre TEXT)';
+    Clomosy.DBSQLiteQuery.OpenOrExecute; 
+  except
+    ShowMessage('Veritabani% bag%lanti% hatasi%: ' + LastExceptionMessage);
+  }
+}
+
+// ---- Beni Hatirla ----
+
+void HatirlaCaptionGuncelle;
+{
+  TRG('Beni Hati%rla');
+  if (HatirlaAcik)
+    LblHatirla.Text = '[X]  ' + TRSonucG;
+  else
+    LblHatirla.Text = '[  ]  ' + TRSonucG;
+}
+
+void HatirlaToggle;
+{
+  HatirlaAcik = not HatirlaAcik;
+  HatirlaCaptionGuncelle;
+}
+
+void HatirlaKaydet(AEposta : String; ASifre : String);
+{
+  try
+    Clomosy.DBSQLiteQuery.SQL.Text = 'DELETE FROM TBLHATIRLA';
+    Clomosy.DBSQLiteQuery.OpenOrExecute; 
+
+    if (HatirlaAcik)
+    {
+      Clomosy.DBSQLiteQuery.SQL.Text = 'INSERT INTO TBLHATIRLA (Eposta, Sifre) VALUES (''' + AEposta + ''', ''' + ASifre + ''')';
+      Clomosy.DBSQLiteQuery.OpenOrExecute; 
+    }
+  except
+  }
+}
+
+void HatirlaYukle;
+{
+  try
+    Clomosy.DBSQLiteQuery.SQL.Text = 'SELECT * FROM TBLHATIRLA';
+    Clomosy.DBSQLiteQuery.OpenOrExecute;
+    
+    if (Clomosy.DBSQLiteQuery.Found)
+    {
+      EdtKullanici.Text = Clomosy.DBSQLiteQuery.FieldByName('Eposta').AsString;
+      EdtSifre.Text = Clomosy.DBSQLiteQuery.FieldByName('Sifre').AsString;
+      HatirlaAcik = True;
+    }
+    else
+    {
+      if (EdtKullanici.Text <> 'ornek@mail.com')
+      {
+         EdtKullanici.Text = '';
+         EdtSifre.Text = '';
+      }
+      HatirlaAcik = False;
+    }
+  except
+  }
+  
+  HatirlaCaptionGuncelle;
+}
+
+// ---- EKRANLAR ARASI GEÇİŞ ----
+
+void KayitModunaGec;
+{
+  PnlGiris.Visible = False;
+  PnlKayit.Visible = True;
+  
+  EdtKAd.Text = '';
+  EdtKEposta.Text = '';
+  EdtKSifre.Text = '';
+  LblHataK.Visible = False;
+}
+
+void GirisModunaGec;
+{
+  PnlKayit.Visible = False;
+  PnlGiris.Visible = True;
+}
+
+// ---- Ana sayfa yonlendirme handler'lari ----
+
+void KaydetBasildi;
+{
+  uUrunEkle.KaydetTiklandi;
+}
+
+void EkleTiklandi;
+{
+  uUrunEkle.AcUrunEkleFormu;
+  uUrunEkle.BtnKaydet.OnClick = 'KaydetBasildi';
+}
+
+void UrunlerTiklandi;
+{
+  uUrunListesi.AcListeFormu;
+  uUrunListesi.BtnEkle.OnClick = 'EkleTiklandi';
+}
+
+void IlanlarTiklandi;
+{
+  uIlanlar.AcIlanlarFormu;
+}
+
+void MarketRezTiklandi;
+{
+  uMarketRezervasyon.AcMarketRezervasyonFormu;
+}
+
+// ---- YENİ KAYIT AKIŞI (FIREBASE) ----
+
+void KayitTamamlandi;
+{
+  RestG.Free; 
+  RestG = Nil;
+  
+  ShowMessage('Kayıt başarıyla oluşturuldu! Lütfen giriş yapın.');
+  
+  PnlKayit.Visible = False;
+  PnlGiris.Visible = True;
+  EdtKullanici.Text = EdtKEposta.Text;
+  EdtSifre.Text = '';
+}
+
+void YeniKullaniciEklendi;
+{
+  RestG.Free; 
+  RestG = Nil;
+
+  RestG = TclRest.Create;
+  RestG.Accept = 'application/json';
+  RestG.ContentType = 'application/json';
+  RestG.BaseURL = FB_URL_G + 'SAYACUSER.json';
+  RestG.Method = rmPUT;
+  RestG.Body = IntToStr(SayacYeniKayit);
+  RestG.OnCompleted = 'KayitTamamlandi';
+  RestG.ExecuteAsync;
+}
+
+void YeniKayitSayacGeldi;
+var
+  JBody, Q : String;
+{
+  if (RestG.Response == 'null') 
+  {
+    SayacYeniKayit = 0;
+  }
+  else 
+  {
+    SayacYeniKayit = StrToInt(RestG.Response);
+  }
+
+  RestG.Free; 
+  RestG = Nil;
+
+  SayacYeniKayit = SayacYeniKayit + 1;
+
+  Q = Chr(34);
+  JBody = '{';
+  JBody = JBody + Q + 'gorunenAd' + Q + ':' + Q + EdtKAd.Text + Q + ',';
+  JBody = JBody + Q + 'kullaniciAdi' + Q + ':' + Q + EdtKEposta.Text + Q + ',';
+  JBody = JBody + Q + 'sifre' + Q + ':' + Q + EdtKSifre.Text + Q + ',';
+  
+  if (CmbKRol.ItemIndex == 0) 
+  {
+    JBody = JBody + Q + 'rol' + Q + ':' + Q + 'market' + Q;
+  }
+  else 
+  {
+    JBody = JBody + Q + 'rol' + Q + ':' + Q + 'stk' + Q;
+  }
+  JBody = JBody + '}';
+
+  RestG = TclRest.Create;
+  RestG.Accept = 'application/json';
+  RestG.ContentType = 'application/json';
+  RestG.BaseURL = FB_URL_G + 'USERS/' + IntToStr(SayacYeniKayit) + '.json';
+  RestG.Method = rmPUT;
+  RestG.Body = JBody;
+  RestG.OnCompleted = 'YeniKullaniciEklendi';
+  RestG.ExecuteAsync;
+}
+
+void BtnYeniKayitTiklandi;
+{
+  if ((EdtKAd.Text == '') || (EdtKEposta.Text == '') || (EdtKSifre.Text == '') || (CmbKRol.ItemIndex == -1))
+  {
+    TRG('Tüm alanlari% doldurun veya rol sec%in');
+    LblHataK.Text = TRSonucG;
+    LblHataK.Visible = True;
+  }
+  else
+  {
+    LblHataK.Visible = False;
+    
+    RestG = TclRest.Create;
+    RestG.Accept = 'application/json';
+    RestG.ContentType = 'application/json';
+    RestG.ConnectTimeOut = 60000;
+    RestG.BaseURL = FB_URL_G + 'SAYACUSER.json';
+    RestG.Method = rmGet;
+    RestG.OnCompleted = 'YeniKayitSayacGeldi';
+    RestG.ExecuteAsync;
+  }
+}
+
+// ---- Giris akisi ----
+
+void GirisiTamamla;
+{
+  HatirlaKaydet(EdtKullanici.Text, EdtSifre.Text);   
+
+  if (AktifRol == 'market')
+  {
+    uUrunListesi.G_MarketAd = AktifAd; 
+    uAnaSayfa.G_MarketAdA = AktifAd; 
+    
+    uAnaSayfa.AcAnaSayfa;
+    
+    uAnaSayfa.BtnUrunler.OnClick = 'UrunlerTiklandi';
+    uAnaSayfa.BtnYeniUrun.OnClick = 'EkleTiklandi';
+    
+    uMarketRezervasyon.G_AktifAd = AktifAd;
+    uAnaSayfa.BtnIlanlar.OnClick = 'MarketRezTiklandi';
+    
+    uAnaSayfa.LblCikis.OnClick = 'CikisTiklandi';
+
+    TRG('Hos% geldiniz, ' + AktifAd);
+    uAnaSayfa.LblKullanici.Text = TRSonucG;
+  }
+  else
+  {
+    uNgoAna.G_NgoAdA = AktifAd;
+    
+    uNgoAna.AcNgoAnaSayfa;
+    uNgoAna.LblCikisN.OnClick = 'CikisTiklandi';
+    
+    TRG('Hos% geldiniz, ' + AktifAd);
+    uNgoAna.LblKullaniciN.Text = TRSonucG;
+  }
+
+  uIlanlar.G_AktifRol = AktifRol;
+  uIlanlar.G_AktifAd = AktifAd;
+  uIlanlar.G_AktifKullaniciAdi = AktifKullaniciAdi;
+  
+  uNgoRezervasyon.G_AktifAd = AktifAd;
+
+  // Çıkış yapılıp form kapandığında burası tetiklenerek değerleri günceller
+  HatirlaYukle; 
+}
+
+void GUsersGeldi;
+var
+  k : Integer;
+  KAdi : String;
+  KSifre : String;
+  Bulundu : Boolean;
+  Cevap : String;
+{
+  Cevap = RestG.Response;
+
+  RestG.Free;
+  RestG = Nil;
+
+  Bulundu = False;
+
+  for k = 3001 to SayacUser
+  {
+    if (Pos('"' + IntToStr(k) + '"', Cevap) > 0)
+    {
+      KAdi = Clomosy.CLParseJSON(Cevap, IntToStr(k) + '.kullaniciAdi');
+      KSifre = Clomosy.CLParseJSON(Cevap, IntToStr(k) + '.sifre');
+
+      if ((KAdi == EdtKullanici.Text) && (KSifre == EdtSifre.Text))
+      {
+        Bulundu = True;
+        AktifRol = Clomosy.CLParseJSON(Cevap, IntToStr(k) + '.rol');
+        AktifAd = Clomosy.CLParseJSON(Cevap, IntToStr(k) + '.gorunenAd');
+        AktifKullaniciAdi = Clomosy.CLParseJSON(Cevap, IntToStr(k) + '.kullaniciAdi');
+      }
+    }
+  }
+
+  if (Bulundu)
+  {
+    LblHataG.Visible = False;
+    GirisiTamamla;
+  }
+  else
+  {
+    TRG('E-posta veya s%ifre hatali%');
+    LblHataG.Text = TRSonucG;
+    LblHataG.Visible = True;
+  }
+}
+
+void GSayacGeldi;
+{
+  if (RestG.Response == 'null')
+  {
+    SayacUser = 0;
+  }
+  else
+  {
+    SayacUser = StrToInt(RestG.Response);
+  }
+
+  RestG.Free;
+  RestG = Nil;
+
+  if (SayacUser > 0)
+  {
+    RestG = TclRest.Create;
+    RestG.Accept = 'application/json';
+    RestG.ContentType = 'application/json';
+    RestG.ConnectTimeOut = 60000;
+    RestG.BaseURL = FB_URL_G + 'USERS.json';
+    RestG.Method = rmGet;
+    RestG.OnCompleted = 'GUsersGeldi';
+    RestG.ExecuteAsync;
+  }
+  else
+  {
+    TRG('Kullani%ci% kaydi% bulunamadi%');
+    LblHataG.Text = TRSonucG;
+    LblHataG.Visible = True;
+  }
+}
+
+void GirisTiklandi;
+{
+  if ((EdtKullanici.Text == '') || (EdtSifre.Text == ''))
+  {
+    TRG('Tüm alanlari% doldurun');
+    LblHataG.Text = TRSonucG;
+    LblHataG.Visible = True;
+  }
+  else
+  {
+    try
+      RestG = TclRest.Create;
+      RestG.Accept = 'application/json';
+      RestG.ContentType = 'application/json';
+      RestG.ConnectTimeOut = 60000;
+      RestG.BaseURL = FB_URL_G + 'SAYACUSER.json';
+      RestG.Method = rmGet;
+      RestG.OnCompleted = 'GSayacGeldi';
+      RestG.ExecuteAsync;
+    except
+      ShowMessage('Hata: ' + LastExceptionMessage);
+    }
+  }
+}
+
+void VirtualKeyboardShow;
+{
+  MainScrollBox.Margins.Bottom = GirisForm.clVKBoundsHeight;
+}
+
+void VirtualKeyboardHidden;
+{
+  MainScrollBox.Margins.Bottom = 0;
+}
+
+void AcGirisFormu;
+{
+  FB_URL_G = 'https://replate-c29bb-default-rtdb.europe-west1.firebasedatabase.app/';
+
+  HatirlaAcik  = False;
+
+  SQLiteHazirla; 
+
+  GirisForm = TclForm.Create(Self);
+  GirisForm.SetFormColor('#0F172A', '', clGNone);
+  GirisForm.BtnGoBack.Visible = False;
+  GirisForm.BtnFormMenu.Visible = False;
+
+  // Klavye Eventleri Ekleniyor
+  GirisForm.AddNewEvent(GirisForm, tbeOnVirtualKeyboardShown, 'VirtualKeyboardShow');
+  GirisForm.AddNewEvent(GirisForm, tbeOnVirtualKeyboardHidden, 'VirtualKeyboardHidden');
+
+  // ScrollBox Ana Taşıyıcı Olarak Oluşturuluyor
+  MainScrollBox = GirisForm.AddNewVertScrollBox(GirisForm, 'MainScrollBox');
+  MainScrollBox.Align = alClient;
+
+  // ==========================================
+  // LOGO EKLENTİSİ BURADA 
+  // (Ebeveyn GirisForm yerine MainScrollBox yapıldı)
+  // ==========================================
+  ImgLogo = GirisForm.AddNewImage(MainScrollBox, 'ImgLogo');
+  ImgLogo.Align = alTop;
+  ImgLogo.Height = 180;        
+  ImgLogo.Margins.Top = 30;   
+  GirisForm.SetImage(ImgLogo, 'logo_giris_4'); 
+  
+  // ==========================================
+  // 1. GİRİŞ PANELİ (PnlGiris)
+  // (Ebeveyn MainScrollBox yapıldı)
+  // ==========================================
+  PnlGiris = GirisForm.AddNewProPanel(MainScrollBox, 'PnlGiris');
+  PnlGiris.Align = alTop;       
+  PnlGiris.Margins.Top = 10;    
+  PnlGiris.Margins.Bottom = 30; // Alt kısımdan boşluk eklendi
+  PnlGiris.Width = 320;
+  PnlGiris.Height = 500; 
+  PnlGiris.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#1E293B');
+  PnlGiris.clProSettings.BorderColor = clAlphaColor.clHexToColor('#334155');
+  PnlGiris.clProSettings.BorderWidth = 1;
+  PnlGiris.clProSettings.RoundHeight = 18;
+  PnlGiris.clProSettings.RoundWidth = 18;
+  PnlGiris.SetclProSettings(PnlGiris.clProSettings);
+
+  TRG('TEKRAR HOS% GELDI%NI%Z');
+  LblHosgeldin = GirisForm.AddNewProLabel(PnlGiris, 'LblHosgeldin', TRSonucG);
+  LblHosgeldin.Align = alTop; LblHosgeldin.Height = 20; LblHosgeldin.Margins.Top = 22; LblHosgeldin.Margins.Left = 22;
+  LblHosgeldin.clProSettings.FontSize = 11;
+  LblHosgeldin.clProSettings.FontColor = clAlphaColor.clHexToColor('#10B981');
+  LblHosgeldin.clProSettings.TextSettings.Font.Style = [fsBold];
+  LblHosgeldin.SetclProSettings(LblHosgeldin.clProSettings);
+
+  TRG('Giris% Yap');
+  LblBaslikG = GirisForm.AddNewProLabel(PnlGiris, 'LblBaslikG', TRSonucG);
+  LblBaslikG.Align = alTop; LblBaslikG.Height = 36; LblBaslikG.Margins.Top = 2; LblBaslikG.Margins.Left = 22;
+  LblBaslikG.clProSettings.FontSize = 24;
+  LblBaslikG.clProSettings.FontColor = clAlphaColor.clHexToColor('#F8FAFC');
+  LblBaslikG.clProSettings.TextSettings.Font.Style = [fsBold];
+  LblBaslikG.SetclProSettings(LblBaslikG.clProSettings);
+
+  LblEposta = GirisForm.AddNewProLabel(PnlGiris, 'LblEposta', 'E-posta');
+  LblEposta.Align = alTop; LblEposta.Height = 18; LblEposta.Margins.Top = 18; LblEposta.Margins.Left = 22;
+  LblEposta.clProSettings.FontSize = 12;
+  LblEposta.clProSettings.FontColor = clAlphaColor.clHexToColor('#94A3B8');
+  LblEposta.SetclProSettings(LblEposta.clProSettings);
+
+  EdtKullanici = GirisForm.AddNewProEdit(PnlGiris, 'EdtKullanici', 'ornek@mail.com');
+  EdtKullanici.Align = alTop; EdtKullanici.Height = 44; EdtKullanici.Margins.Top = 6; EdtKullanici.Margins.Left = 22; EdtKullanici.Margins.Right = 22;
+  EdtKullanici.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#0F172A');
+  EdtKullanici.clProSettings.FontColor = clAlphaColor.clHexToColor('#F8FAFC');
+  EdtKullanici.clProSettings.BorderColor = clAlphaColor.clHexToColor('#334155');
+  EdtKullanici.clProSettings.BorderWidth = 1; EdtKullanici.clProSettings.RoundHeight = 10; EdtKullanici.clProSettings.RoundWidth = 10;
+  EdtKullanici.SetclProSettings(EdtKullanici.clProSettings);
+
+  TRG('S%ifre');
+  LblSifreG = GirisForm.AddNewProLabel(PnlGiris, 'LblSifreG', TRSonucG);
+  LblSifreG.Align = alTop; LblSifreG.Height = 18; LblSifreG.Margins.Top = 14; LblSifreG.Margins.Left = 22;
+  LblSifreG.clProSettings.FontSize = 12;
+  LblSifreG.clProSettings.FontColor = clAlphaColor.clHexToColor('#94A3B8');
+  LblSifreG.SetclProSettings(LblSifreG.clProSettings);
+
+  TRG('S%ifrenizi girin');
+  EdtSifre = GirisForm.AddNewProEdit(PnlGiris, 'EdtSifre', TRSonucG);
+  EdtSifre.Align = alTop; EdtSifre.Height = 44; EdtSifre.Margins.Top = 6; EdtSifre.Margins.Left = 22; EdtSifre.Margins.Right = 22;
+  EdtSifre.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#0F172A');
+  EdtSifre.clProSettings.FontColor = clAlphaColor.clHexToColor('#F8FAFC');
+  EdtSifre.clProSettings.BorderColor = clAlphaColor.clHexToColor('#334155');
+  EdtSifre.clProSettings.BorderWidth = 1; EdtSifre.clProSettings.RoundHeight = 10; EdtSifre.clProSettings.RoundWidth = 10;
+  EdtSifre.Password = True;
+  EdtSifre.SetclProSettings(EdtSifre.clProSettings);
+
+  LblHataG = GirisForm.AddNewProLabel(PnlGiris, 'LblHataG', '');
+  LblHataG.Align = alTop; LblHataG.Height = 18; LblHataG.Margins.Top = 6;
+  LblHataG.clProSettings.FontColor = clAlphaColor.clHexToColor('#F87171');
+  LblHataG.clProSettings.FontSize = 12;
+  LblHataG.clProSettings.FontHorzAlign = palCenter;
+  LblHataG.SetclProSettings(LblHataG.clProSettings);
+  LblHataG.Visible = False;
+
+  LblHatirla = GirisForm.AddNewProLabel(PnlGiris, 'LblHatirla', '');
+  LblHatirla.Align = alTop; LblHatirla.Height = 22; LblHatirla.Margins.Top = 6; LblHatirla.Margins.Left = 22;
+  LblHatirla.clProSettings.FontSize = 12;
+  LblHatirla.clProSettings.FontColor = clAlphaColor.clHexToColor('#94A3B8');
+  LblHatirla.clProSettings.TextSettings.Font.Style = [fsBold];
+  LblHatirla.SetclProSettings(LblHatirla.clProSettings);
+  HatirlaCaptionGuncelle;
+
+  TRG('Giris% Yap');
+  BtnGiris = GirisForm.AddNewProButton(PnlGiris, 'BtnGiris', TRSonucG);
+  BtnGiris.Align = alTop; BtnGiris.Height = 48; BtnGiris.Margins.Top = 10; BtnGiris.Margins.Left = 22; BtnGiris.Margins.Right = 22;
+  BtnGiris.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#10B981');
+  BtnGiris.clProSettings.FontColor = clAlphaColor.clWhite;
+  BtnGiris.clProSettings.FontSize = 15;
+  BtnGiris.clProSettings.RoundHeight = 12; BtnGiris.clProSettings.RoundWidth = 12; BtnGiris.clProSettings.BorderWidth = 0;
+  BtnGiris.clProSettings.TextSettings.Font.Style = [fsBold];
+  BtnGiris.SetclProSettings(BtnGiris.clProSettings);
+
+  TRG('Hesabi%ni%z yok mu? Hesap Olus%tur');
+  LblKayit = GirisForm.AddNewProLabel(PnlGiris, 'LblKayit', TRSonucG);
+  LblKayit.Align = alTop; LblKayit.Height = 22; LblKayit.Margins.Top = 20; 
+  LblKayit.clProSettings.FontSize = 12;
+  LblKayit.clProSettings.FontColor = clAlphaColor.clHexToColor('#10B981');
+  LblKayit.clProSettings.FontHorzAlign = palCenter;
+  LblKayit.clProSettings.TextSettings.Font.Style = [fsBold];
+  LblKayit.SetclProSettings(LblKayit.clProSettings);
+
+  // ==========================================
+  // 2. KAYIT PANELİ (PnlKayit)
+  // (Ebeveyn MainScrollBox yapıldı)
+  // ==========================================
+  PnlKayit = GirisForm.AddNewProPanel(MainScrollBox, 'PnlKayit');
+  PnlKayit.Align = alTop;       
+  PnlKayit.Margins.Top = 10;    
+  PnlKayit.Margins.Bottom = 30; // Alt kısımdan boşluk eklendi
+  PnlKayit.Width = 320;
+  PnlKayit.Height = 580; 
+  PnlKayit.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#1E293B');
+  PnlKayit.clProSettings.BorderColor = clAlphaColor.clHexToColor('#334155');
+  PnlKayit.clProSettings.BorderWidth = 1;
+  PnlKayit.clProSettings.RoundHeight = 18;
+  PnlKayit.clProSettings.RoundWidth = 18;
+  PnlKayit.SetclProSettings(PnlKayit.clProSettings);
+  PnlKayit.Visible = False; // Başlangıçta gizli
+
+  TRG('Hesap Olus%tur');
+  LblBaslikK = GirisForm.AddNewProLabel(PnlKayit, 'LblBaslikK', TRSonucG);
+  LblBaslikK.Align = alTop; LblBaslikK.Height = 36; LblBaslikK.Margins.Top = 22; LblBaslikK.Margins.Left = 22;
+  LblBaslikK.clProSettings.FontSize = 24;
+  LblBaslikK.clProSettings.FontColor = clAlphaColor.clHexToColor('#F8FAFC');
+  LblBaslikK.clProSettings.TextSettings.Font.Style = [fsBold];
+  LblBaslikK.SetclProSettings(LblBaslikK.clProSettings);
+
+  LblKAd = GirisForm.AddNewProLabel(PnlKayit, 'LblKAd', 'Ad Soyad / Kurum Adı');
+  LblKAd.Align = alTop; LblKAd.Height = 18; LblKAd.Margins.Top = 15; LblKAd.Margins.Left = 22;
+  LblKAd.clProSettings.FontSize = 12;
+  LblKAd.clProSettings.FontColor = clAlphaColor.clHexToColor('#94A3B8');
+  LblKAd.SetclProSettings(LblKAd.clProSettings);
+
+  TRG('Örn: Atiker Market');
+  EdtKAd = GirisForm.AddNewProEdit(PnlKayit, 'EdtKAd', TRSonucG);
+  EdtKAd.Align = alTop; EdtKAd.Height = 44; EdtKAd.Margins.Top = 4; EdtKAd.Margins.Left = 22; EdtKAd.Margins.Right = 22;
+  EdtKAd.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#0F172A');
+  EdtKAd.clProSettings.FontColor = clAlphaColor.clHexToColor('#F8FAFC');
+  EdtKAd.clProSettings.BorderColor = clAlphaColor.clHexToColor('#334155');
+  EdtKAd.clProSettings.BorderWidth = 1; EdtKAd.clProSettings.RoundHeight = 10; EdtKAd.clProSettings.RoundWidth = 10;
+  EdtKAd.SetclProSettings(EdtKAd.clProSettings);
+
+  LblKEposta = GirisForm.AddNewProLabel(PnlKayit, 'LblKEposta', 'E-posta');
+  LblKEposta.Align = alTop; LblKEposta.Height = 18; LblKEposta.Margins.Top = 12; LblKEposta.Margins.Left = 22;
+  LblKEposta.clProSettings.FontSize = 12;
+  LblKEposta.clProSettings.FontColor = clAlphaColor.clHexToColor('#94A3B8');
+  LblKEposta.SetclProSettings(LblKEposta.clProSettings);
+
+  EdtKEposta = GirisForm.AddNewProEdit(PnlKayit, 'EdtKEposta', 'ornek@mail.com');
+  EdtKEposta.Align = alTop; EdtKEposta.Height = 44; EdtKEposta.Margins.Top = 4; EdtKEposta.Margins.Left = 22; EdtKEposta.Margins.Right = 22;
+  EdtKEposta.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#0F172A');
+  EdtKEposta.clProSettings.FontColor = clAlphaColor.clHexToColor('#F8FAFC');
+  EdtKEposta.clProSettings.BorderColor = clAlphaColor.clHexToColor('#334155');
+  EdtKEposta.clProSettings.BorderWidth = 1; EdtKEposta.clProSettings.RoundHeight = 10; EdtKEposta.clProSettings.RoundWidth = 10;
+  EdtKEposta.SetclProSettings(EdtKEposta.clProSettings);
+
+  TRG('S%ifre');
+  LblKSifre = GirisForm.AddNewProLabel(PnlKayit, 'LblKSifre', TRSonucG);
+  LblKSifre.Align = alTop; LblKSifre.Height = 18; LblKSifre.Margins.Top = 12; LblKSifre.Margins.Left = 22;
+  LblKSifre.clProSettings.FontSize = 12;
+  LblKSifre.clProSettings.FontColor = clAlphaColor.clHexToColor('#94A3B8');
+  LblKSifre.SetclProSettings(LblKSifre.clProSettings);
+
+  TRG('S%ifrenizi belirleyin');
+  EdtKSifre = GirisForm.AddNewProEdit(PnlKayit, 'EdtKSifre', TRSonucG);
+  EdtKSifre.Align = alTop; EdtKSifre.Height = 44; EdtKSifre.Margins.Top = 4; EdtKSifre.Margins.Left = 22; EdtKSifre.Margins.Right = 22;
+  EdtKSifre.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#0F172A');
+  EdtKSifre.clProSettings.FontColor = clAlphaColor.clHexToColor('#F8FAFC');
+  EdtKSifre.clProSettings.BorderColor = clAlphaColor.clHexToColor('#334155');
+  EdtKSifre.clProSettings.BorderWidth = 1; EdtKSifre.clProSettings.RoundHeight = 10; EdtKSifre.clProSettings.RoundWidth = 10;
+  EdtKSifre.Password = True;
+  EdtKSifre.SetclProSettings(EdtKSifre.clProSettings);
+
+  LblKRol = GirisForm.AddNewProLabel(PnlKayit, 'LblKRol', 'Kayıt Tipi (Rol)');
+  LblKRol.Align = alTop; LblKRol.Height = 18; LblKRol.Margins.Top = 12; LblKRol.Margins.Left = 22;
+  LblKRol.clProSettings.FontSize = 12;
+  LblKRol.clProSettings.FontColor = clAlphaColor.clHexToColor('#94A3B8');
+  LblKRol.SetclProSettings(LblKRol.clProSettings);
+
+  PnlRolWrapper = GirisForm.AddNewProPanel(PnlKayit, 'PnlRolWrapper');
+  PnlRolWrapper.Align = alTop; PnlRolWrapper.Height = 44; PnlRolWrapper.Margins.Top = 4; PnlRolWrapper.Margins.Left = 22; PnlRolWrapper.Margins.Right = 22;
+  PnlRolWrapper.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#0F172A');
+  PnlRolWrapper.clProSettings.BorderColor = clAlphaColor.clHexToColor('#334155');
+  PnlRolWrapper.clProSettings.BorderWidth = 1; PnlRolWrapper.clProSettings.RoundHeight = 10; PnlRolWrapper.clProSettings.RoundWidth = 10;
+  PnlRolWrapper.SetclProSettings(PnlRolWrapper.clProSettings);
+
+  CmbKRol = GirisForm.AddNewComboBox(PnlRolWrapper, 'CmbKRol');
+  CmbKRol.Align = alClient;
+  CmbKRol.Margins.Top = 2; CmbKRol.Margins.Bottom = 2; CmbKRol.Margins.Left = 5; CmbKRol.Margins.Right = 5;
+  CmbKRol.AddItem('Market', 'market');
+  CmbKRol.AddItem('Sivil Toplum Kuruluşu (STK)', 'stk');
+
+  LblHataK = GirisForm.AddNewProLabel(PnlKayit, 'LblHataK', '');
+  LblHataK.Align = alTop; LblHataK.Height = 18; LblHataK.Margins.Top = 10;
+  LblHataK.clProSettings.FontColor = clAlphaColor.clHexToColor('#F87171');
+  LblHataK.clProSettings.FontSize = 12; LblHataK.clProSettings.FontHorzAlign = palCenter;
+  LblHataK.SetclProSettings(LblHataK.clProSettings);
+  LblHataK.Visible = False;
+
+  TRG('Kayi%t Ol');
+  BtnYeniKayit = GirisForm.AddNewProButton(PnlKayit, 'BtnYeniKayit', TRSonucG);
+  BtnYeniKayit.Align = alTop; BtnYeniKayit.Height = 48; BtnYeniKayit.Margins.Top = 8; BtnYeniKayit.Margins.Left = 22; BtnYeniKayit.Margins.Right = 22;
+  BtnYeniKayit.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#10B981');
+  BtnYeniKayit.clProSettings.FontColor = clAlphaColor.clWhite;
+  BtnYeniKayit.clProSettings.FontSize = 15;
+  BtnYeniKayit.clProSettings.RoundHeight = 12; BtnYeniKayit.clProSettings.RoundWidth = 12; BtnYeniKayit.clProSettings.BorderWidth = 0;
+  BtnYeniKayit.clProSettings.TextSettings.Font.Style = [fsBold];
+  BtnYeniKayit.SetclProSettings(BtnYeniKayit.clProSettings);
+
+  TRG('Zaten hesabi%ni%z var mi%? Giris% Yap');
+  LblZatenVar = GirisForm.AddNewProLabel(PnlKayit, 'LblZatenVar', TRSonucG);
+  LblZatenVar.Align = alTop; LblZatenVar.Height = 22; LblZatenVar.Margins.Top = 15;
+  LblZatenVar.clProSettings.FontSize = 12;
+  LblZatenVar.clProSettings.FontColor = clAlphaColor.clHexToColor('#10B981');
+  LblZatenVar.clProSettings.FontHorzAlign = palCenter;
+  LblZatenVar.clProSettings.TextSettings.Font.Style = [fsBold];
+  LblZatenVar.SetclProSettings(LblZatenVar.clProSettings);
+
+  // ==========================================
+  // BUTON TETİKLEYİCİLERİ EKLENİYOR
+  // ==========================================
+  GirisForm.AddNewEvent(BtnGiris, tbeOnClick, 'GirisTiklandi');
+  GirisForm.AddNewEvent(LblHatirla, tbeOnClick, 'HatirlaToggle');
+  
+  GirisForm.AddNewEvent(LblKayit, tbeOnClick, 'KayitModunaGec');
+  GirisForm.AddNewEvent(LblZatenVar, tbeOnClick, 'GirisModunaGec');
+  
+  GirisForm.AddNewEvent(BtnYeniKayit, tbeOnClick, 'BtnYeniKayitTiklandi');
+
+  HatirlaYukle;   
+
+  GirisForm.Run;
+}

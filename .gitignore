@@ -1,0 +1,22 @@
+   # Python
+   __pycache__/
+   venv/
+   .venv/
+   *.pyc
+
+   # Node
+   node_modules/
+
+   # Derleme çıktıları
+   build/
+   dist/
+   *.exe
+
+   # Gizli bilgiler
+   .env
+   *.key
+   config.local.*
+
+   # IDE
+   .vscode/
+   .idea/

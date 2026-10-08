@@ -1,0 +1,541 @@
+var
+  RezForm      : TclForm;
+  LblBaslikR   : TclProLabel;
+  ScrollRez    : TclVertScrollBox;
+  YenilemeNoR  : Integer;
+  TRSonucR     : String;
+  RestR        : TclRest;
+  FB_URL_R     : String;
+  SayacR       : Integer;
+
+  // Giris ekranindan aktarilacak STK adi
+  G_AktifAd    : String;
+
+  // Iptal ve Onay Islemleri Icin
+  IDListeR     : String;
+  IptalIndeks  : Integer;
+  OnayIndeks   : Integer; // YENİ: Teslim onayı sırasını tutmak için
+
+  // Iptal Zinciri Icin
+  G_IptalTargetID   : String;
+  G_IptalAnaID      : String;
+  G_IptalStkKey     : String;
+  G_IptalAdet       : Integer;
+  G_IptalTargetJson : String;
+
+void TRDegistirR(AKod : String; AHarf : String);
+{
+  while (Pos(AKod, TRSonucR) > 0)
+  {
+    TRSonucR = Copy(TRSonucR, 1, Pos(AKod, TRSonucR) - 1) + AHarf + Copy(TRSonucR, Pos(AKod, TRSonucR) + 2, 100000);
+  }
+}
+
+void TRR(AMetin : String);
+{
+  TRSonucR = AMetin;
+  TRDegistirR('c%', Chr(231));
+  TRDegistirR('C%', Chr(199));
+  TRDegistirR('g%', Chr(287));
+  TRDegistirR('G%', Chr(286));
+  TRDegistirR('s%', Chr(351));
+  TRDegistirR('S%', Chr(350));
+  TRDegistirR('i%', Chr(305));
+  TRDegistirR('I%', Chr(304));
+  TRDegistirR('I%', Chr(304));
+  TRDegistirR('u%', Chr(252));
+  TRDegistirR('U%', Chr(220));
+  TRDegistirR('o%', Chr(246));
+  TRDegistirR('O%', Chr(214));
+}
+
+void RezervasyonlariYenile; forward;
+
+// --- YENİ: ONAY ETME AKIŞI (TESLİM ALINDI) ---
+
+void OnayTamamlandi;
+{
+  if (RestR <> nil)
+  {
+    RestR.Free;
+    RestR = Nil;
+  }
+  
+  TRR('Ürün bas%ari%yla tesli%m ali%ndi% ve is%lem gec%mis%e eklendi%.');
+  ShowMessage(TRSonucR);
+  
+  RezervasyonlariYenile; 
+}
+
+void SecileniOnayla;
+var
+  Kalan : String;
+  HedefID : String;
+  j : Integer;
+  JBody, Q : String;
+{
+  try
+    Kalan = IDListeR;
+    if (OnayIndeks > 0)
+    {
+      for j = 1 to OnayIndeks
+      {
+        Kalan = Copy(Kalan, Pos(';', Kalan) + 1, 100000);
+      }
+    }
+    HedefID = Copy(Kalan, 1, Pos(';', Kalan) - 1);
+
+    Q = Chr(34);
+    JBody = '{';
+    JBody = JBody + Q + 'durum' + Q + ':' + Q + 'tamamlandi' + Q;
+    JBody = JBody + '}';
+
+    RestR = TclRest.Create;
+    RestR.Accept = 'application/json';
+    RestR.ContentType = 'application/json';
+    RestR.ConnectTimeOut = 60000;
+    RestR.BaseURL = FB_URL_R + 'TBLLISTINGS/' + HedefID + '.json';
+    RestR.Method = rmPATCH; 
+    RestR.Body = JBody;
+    RestR.OnCompleted = 'OnayTamamlandi';
+    RestR.ExecuteAsync;
+  except
+    ShowMessage('Onay Hata: ' + LastExceptionMessage);
+  }
+}
+
+void OnayKart0; { OnayIndeks = 0; SecileniOnayla; }
+void OnayKart1; { OnayIndeks = 1; SecileniOnayla; }
+void OnayKart2; { OnayIndeks = 2; SecileniOnayla; }
+void OnayKart3; { OnayIndeks = 3; SecileniOnayla; }
+void OnayKart4; { OnayIndeks = 4; SecileniOnayla; }
+void OnayKart5; { OnayIndeks = 5; SecileniOnayla; }
+void OnayKart6; { OnayIndeks = 6; SecileniOnayla; }
+void OnayKart7; { OnayIndeks = 7; SecileniOnayla; }
+void OnayKart8; { OnayIndeks = 8; SecileniOnayla; }
+void OnayKart9; { OnayIndeks = 9; SecileniOnayla; }
+
+// --- IPTAL ETME AKIS%I (ZINCIRLEME ALGORITMA) ---
+
+void IptalTamamlandi;
+{
+  if (RestR <> nil)
+  {
+    RestR.Free;
+    RestR = Nil;
+  }
+  
+  TRR('Rezervasyon iptal edildi. Limitiniz geri yüklendi.');
+  ShowMessage(TRSonucR);
+  
+  RezervasyonlariYenile; 
+}
+
+void IptalAdim3;
+var JBody, Q : String;
+{
+  RestR.Free; RestR = Nil;
+  
+  Q = Chr(34);
+  JBody = '{';
+  JBody = JBody + Q + 'durum' + Q + ':' + Q + 'iptal' + Q;
+  JBody = JBody + '}';
+  
+  RestR = TclRest.Create;
+  RestR.Accept = 'application/json';
+  RestR.ContentType = 'application/json';
+  RestR.BaseURL = FB_URL_R + 'TBLLISTINGS/' + G_IptalTargetID + '.json';
+  RestR.Method = rmPATCH;
+  RestR.Body = JBody;
+  RestR.OnCompleted = 'IptalTamamlandi';
+  RestR.ExecuteAsync;
+}
+
+void IptalAdim2;
+var 
+  AnaJson : String;
+  OncekiAdet, YeniAdet : Integer;
+  OncekiLimit, YeniLimit : Integer;
+  SLimit : String;
+  JBody, Q : String;
+{
+  AnaJson = RestR.Response;
+  RestR.Free; RestR = Nil;
+  
+  OncekiAdet = StrToInt(Clomosy.CLParseJSON(AnaJson, 'adet'));
+  YeniAdet = OncekiAdet + G_IptalAdet;
+  
+  SLimit = Clomosy.CLParseJSON(AnaJson, 'talepler.' + G_IptalStkKey);
+  if (SLimit == '') { OncekiLimit = 0; } else { OncekiLimit = StrToInt(SLimit); }
+  YeniLimit = OncekiLimit - G_IptalAdet;
+  if (YeniLimit < 0) { YeniLimit = 0; }
+  
+  Q = Chr(34);
+  JBody = '{';
+  JBody = JBody + Q + 'adet' + Q + ':' + IntToStr(YeniAdet) + ',';
+  JBody = JBody + Q + 'talepler/' + G_IptalStkKey + Q + ':' + IntToStr(YeniLimit);
+  JBody = JBody + '}';
+  
+  RestR = TclRest.Create;
+  RestR.Accept = 'application/json';
+  RestR.ContentType = 'application/json';
+  RestR.BaseURL = FB_URL_R + 'TBLLISTINGS/' + G_IptalAnaID + '.json';
+  RestR.Method = rmPATCH;
+  RestR.Body = JBody;
+  RestR.OnCompleted = 'IptalAdim3';
+  RestR.ExecuteAsync;
+}
+
+void IptalAdim1;
+var
+  SLimit: String;
+  OncekiLimit, YeniLimit : Integer;
+  JBody, Q : String;
+{
+  G_IptalTargetJson = RestR.Response;
+  RestR.Free; RestR = Nil;
+  
+  G_IptalAnaID = Clomosy.CLParseJSON(G_IptalTargetJson, 'anaIlanId');
+  G_IptalStkKey = Clomosy.CLParseJSON(G_IptalTargetJson, 'stkKey');
+  G_IptalAdet = StrToInt(Clomosy.CLParseJSON(G_IptalTargetJson, 'adet'));
+  
+  Q = Chr(34);
+  
+  if ((G_IptalAnaID == '') || (G_IptalStkKey == ''))
+  {
+    JBody = '{';
+    JBody = JBody + Q + 'durum' + Q + ':' + Q + 'aktif' + Q + ', ';
+    JBody = JBody + Q + 'rezerveEdenAd' + Q + ':' + Q + '' + Q;
+    JBody = JBody + '}';
+
+    RestR = TclRest.Create;
+    RestR.Accept = 'application/json';
+    RestR.ContentType = 'application/json';
+    RestR.BaseURL = FB_URL_R + 'TBLLISTINGS/' + G_IptalTargetID + '.json';
+    RestR.Method = rmPATCH; 
+    RestR.Body = JBody;
+    RestR.OnCompleted = 'IptalTamamlandi';
+    RestR.ExecuteAsync;
+  }
+  else if (G_IptalAnaID == G_IptalTargetID)
+  {
+    SLimit = Clomosy.CLParseJSON(G_IptalTargetJson, 'talepler.' + G_IptalStkKey);
+    if (SLimit == '') { OncekiLimit = 0; } else { OncekiLimit = StrToInt(SLimit); }
+    YeniLimit = OncekiLimit - G_IptalAdet;
+    if (YeniLimit < 0) { YeniLimit = 0; }
+    
+    JBody = '{';
+    JBody = JBody + Q + 'durum' + Q + ':' + Q + 'aktif' + Q + ', ';
+    JBody = JBody + Q + 'rezerveEdenAd' + Q + ':' + Q + '' + Q + ',';
+    JBody = JBody + Q + 'talepler/' + G_IptalStkKey + Q + ':' + IntToStr(YeniLimit);
+    JBody = JBody + '}';
+
+    RestR = TclRest.Create;
+    RestR.Accept = 'application/json';
+    RestR.ContentType = 'application/json';
+    RestR.BaseURL = FB_URL_R + 'TBLLISTINGS/' + G_IptalTargetID + '.json';
+    RestR.Method = rmPATCH; 
+    RestR.Body = JBody;
+    RestR.OnCompleted = 'IptalTamamlandi';
+    RestR.ExecuteAsync;
+  }
+  else
+  {
+    RestR = TclRest.Create;
+    RestR.Accept = 'application/json';
+    RestR.ContentType = 'application/json';
+    RestR.BaseURL = FB_URL_R + 'TBLLISTINGS/' + G_IptalAnaID + '.json';
+    RestR.Method = rmGet; 
+    RestR.OnCompleted = 'IptalAdim2';
+    RestR.ExecuteAsync;
+  }
+}
+
+void SecileniIptalEt;
+var
+  Kalan : String;
+  j : Integer;
+{
+  try
+    Kalan = IDListeR;
+    if (IptalIndeks > 0)
+    {
+      for j = 1 to IptalIndeks
+      {
+        Kalan = Copy(Kalan, Pos(';', Kalan) + 1, 100000);
+      }
+    }
+    G_IptalTargetID = Copy(Kalan, 1, Pos(';', Kalan) - 1);
+
+    RestR = TclRest.Create;
+    RestR.Accept = 'application/json';
+    RestR.ContentType = 'application/json';
+    RestR.ConnectTimeOut = 60000;
+    RestR.BaseURL = FB_URL_R + 'TBLLISTINGS/' + G_IptalTargetID + '.json';
+    RestR.Method = rmGet; 
+    RestR.OnCompleted = 'IptalAdim1';
+    RestR.ExecuteAsync;
+  except
+    ShowMessage('Iptal Hata: ' + LastExceptionMessage);
+  }
+}
+
+void IptalKart0; { IptalIndeks = 0; SecileniIptalEt; }
+void IptalKart1; { IptalIndeks = 1; SecileniIptalEt; }
+void IptalKart2; { IptalIndeks = 2; SecileniIptalEt; }
+void IptalKart3; { IptalIndeks = 3; SecileniIptalEt; }
+void IptalKart4; { IptalIndeks = 4; SecileniIptalEt; }
+void IptalKart5; { IptalIndeks = 5; SecileniIptalEt; }
+void IptalKart6; { IptalIndeks = 6; SecileniIptalEt; }
+void IptalKart7; { IptalIndeks = 7; SecileniIptalEt; }
+void IptalKart8; { IptalIndeks = 8; SecileniIptalEt; }
+void IptalKart9; { IptalIndeks = 9; SecileniIptalEt; }
+
+// --- C%I%ZI%M AKIS%I ---
+
+void RezKartlariCiz(AJson : String);
+var
+  Kart : TclProPanel;
+  PnlSag : TclProPanel;
+  PnlSol : TclProPanel;
+  LblAd : TclProLabel;
+  LblFiyat : TclProLabel;
+  LblAlt : TclProLabel;
+  LblKategori : TclProLabel;
+  LblIptal : TclProLabel;
+  k : Integer;
+  GorunenNo : Integer;
+  IlanAd : String;
+  Durum : String;
+  RezerveEden : String;
+  TamAltMetin : String;
+{
+  try
+    GorunenNo = 0;
+    IDListeR = '';
+
+    for k = 2001 to SayacR
+    {
+      if (Pos('"' + IntToStr(k) + '"', AJson) > 0)
+      {
+        Durum = Clomosy.CLParseJSON(AJson, IntToStr(k) + '.durum');
+
+        // YENİ: Hem 'rezerve' hem de 'onay_bekliyor' statüsündekileri listeler
+        if ((Durum == 'rezerve') || (Durum == 'onay_bekliyor'))
+        {
+          RezerveEden = Clomosy.CLParseJSON(AJson, IntToStr(k) + '.rezerveEdenAd');
+
+          if (RezerveEden == G_AktifAd)
+          {
+            IlanAd = Clomosy.CLParseJSON(AJson, IntToStr(k) + '.urunAd');
+
+            Kart = RezForm.AddNewProPanel(ScrollRez, 'RKart_' + IntToStr(YenilemeNoR) + '_' + IntToStr(GorunenNo));
+            Kart.Align = alTop; Kart.Height = 120; Kart.Margins.Top = 10;
+            Kart.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#1F2937');
+            Kart.clProSettings.BorderColor = clAlphaColor.clHexToColor('#5B5BE5'); 
+            Kart.clProSettings.BorderWidth = 2;
+            Kart.clProSettings.RoundHeight = 10; Kart.clProSettings.RoundWidth = 10;
+            Kart.SetclProSettings(Kart.clProSettings);
+
+            // --- YENİ MİMARİ: SAĞ VE SOL PANELLER ---
+            
+            // 1. SAĞ PANEL (Duruma göre Buton İçin, Sağ kenara sabit)
+            PnlSag = RezForm.AddNewProPanel(Kart, 'PnlSag_' + IntToStr(YenilemeNoR) + '_' + IntToStr(GorunenNo));
+            PnlSag.Align = alRight; 
+            PnlSag.Width = 100;
+            
+            // YENİ: Duruma göre Kırmızı (İptal) veya Yeşil (Teslim Aldım) Buton
+            if (Durum == 'rezerve')
+            {
+               TRR('I%PTAL ET');
+               LblIptal = RezForm.AddNewProLabel(PnlSag, 'LblIptal_' + IntToStr(YenilemeNoR) + '_' + IntToStr(GorunenNo), TRSonucR);
+               LblIptal.Align = alCenter;
+               LblIptal.Height = 35;
+               LblIptal.Width = 85;
+               LblIptal.clProSettings.FontSize = 11;
+               LblIptal.clProSettings.FontColor = clAlphaColor.clWhite;
+               LblIptal.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#EF4444'); // Kırmızı
+               LblIptal.clProSettings.FontHorzAlign = palCenter;
+               LblIptal.clProSettings.FontVertAlign = palCenter;
+               LblIptal.clProSettings.TextSettings.Font.Style = [fsBold];
+               LblIptal.clProSettings.RoundHeight = 6;
+               LblIptal.clProSettings.RoundWidth = 6;
+               LblIptal.SetclProSettings(LblIptal.clProSettings);
+               
+               if (GorunenNo < 10)
+               {
+                  RezForm.AddNewEvent(LblIptal, tbeOnClick, 'IptalKart' + IntToStr(GorunenNo));
+               }
+            }
+            else if (Durum == 'onay_bekliyor')
+            {
+               TRR('TESLI%M ALDI%M');
+               LblIptal = RezForm.AddNewProLabel(PnlSag, 'LblOnay_' + IntToStr(YenilemeNoR) + '_' + IntToStr(GorunenNo), TRSonucR);
+               LblIptal.Align = alCenter;
+               LblIptal.Height = 35;
+               LblIptal.Width = 85;
+               LblIptal.clProSettings.FontSize = 10;
+               LblIptal.clProSettings.FontColor = clAlphaColor.clWhite;
+               LblIptal.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#10B981'); // Yeşil
+               LblIptal.clProSettings.FontHorzAlign = palCenter;
+               LblIptal.clProSettings.FontVertAlign = palCenter;
+               LblIptal.clProSettings.TextSettings.Font.Style = [fsBold];
+               LblIptal.clProSettings.RoundHeight = 6;
+               LblIptal.clProSettings.RoundWidth = 6;
+               LblIptal.SetclProSettings(LblIptal.clProSettings);
+               
+               if (GorunenNo < 10)
+               {
+                  RezForm.AddNewEvent(LblIptal, tbeOnClick, 'OnayKart' + IntToStr(GorunenNo));
+               }
+            }
+
+            // 2. SOL PANEL (Yazılar İçin, Kalan tüm boş alanı kaplar)
+            PnlSol = RezForm.AddNewProPanel(Kart, 'PnlSol_' + IntToStr(YenilemeNoR) + '_' + IntToStr(GorunenNo));
+            PnlSol.Align = alClient;
+            
+            LblAd = RezForm.AddNewProLabel(PnlSol, 'RLblAd_' + IntToStr(YenilemeNoR) + '_' + IntToStr(GorunenNo), IlanAd);
+            LblAd.Align = alTop; LblAd.Height = 26; LblAd.Margins.Top = 10; LblAd.Margins.Left = 15;
+            LblAd.clProSettings.FontSize = 15;
+            LblAd.clProSettings.FontColor = clAlphaColor.clHexToColor('#F9FAFB');
+            LblAd.clProSettings.TextSettings.Font.Style = [fsBold];
+            LblAd.SetclProSettings(LblAd.clProSettings);
+
+            LblFiyat = RezForm.AddNewProLabel(PnlSol, 'RLblFyt_' + IntToStr(YenilemeNoR) + '_' + IntToStr(GorunenNo), 'Ödenecek: ' + Clomosy.CLParseJSON(AJson, IntToStr(k) + '.indirimliFiyat') + ' TL');
+            LblFiyat.Align = alTop; LblFiyat.Height = 24; LblFiyat.Margins.Top = 2; LblFiyat.Margins.Left = 15;
+            LblFiyat.clProSettings.FontSize = 14;
+            LblFiyat.clProSettings.FontColor = clAlphaColor.clHexToColor('#34D399');
+            LblFiyat.clProSettings.TextSettings.Font.Style = [fsBold];
+            LblFiyat.SetclProSettings(LblFiyat.clProSettings);
+
+            LblKategori = RezForm.AddNewProLabel(PnlSol, 'RLblKat_' + IntToStr(YenilemeNoR) + '_' + IntToStr(GorunenNo), Clomosy.CLParseJSON(AJson, IntToStr(k) + '.kategori'));
+            LblKategori.Align = alBottom; LblKategori.Height = 20; LblKategori.Margins.Bottom = 8; LblKategori.Margins.Left = 15;
+            LblKategori.clProSettings.FontSize = 11;
+            LblKategori.clProSettings.FontColor = clAlphaColor.clHexToColor('#5B5BE5');
+            LblKategori.SetclProSettings(LblKategori.clProSettings);
+
+            TamAltMetin = Clomosy.CLParseJSON(AJson, IntToStr(k) + '.adet') + ' adet | Teslim Alinacak: ' + 
+                          Clomosy.CLParseJSON(AJson, IntToStr(k) + '.marketAd');
+
+            LblAlt = RezForm.AddNewProLabel(PnlSol, 'RLblAlt_' + IntToStr(YenilemeNoR) + '_' + IntToStr(GorunenNo), TamAltMetin);
+            LblAlt.Align = alBottom; LblAlt.Height = 22; LblAlt.Margins.Bottom = 2; LblAlt.Margins.Left = 15;
+            LblAlt.clProSettings.FontSize = 11;
+            LblAlt.clProSettings.FontColor = clAlphaColor.clHexToColor('#9CA3AF');
+            LblAlt.SetclProSettings(LblAlt.clProSettings);
+
+            IDListeR = IDListeR + IntToStr(k) + ';';
+            GorunenNo = GorunenNo + 1;
+          }
+        }
+      }
+    }
+    
+    if (GorunenNo == 0)
+    {
+       TRR('Henüz rezerve ettig%iniz bir ürün bulunmuyor.');
+       LblKategori = RezForm.AddNewProLabel(ScrollRez, 'LblBos', TRSonucR);
+       LblKategori.Align = alTop; LblKategori.Height = 50; LblKategori.Margins.Top = 20;
+       LblKategori.clProSettings.FontSize = 12;
+       LblKategori.clProSettings.FontColor = clAlphaColor.clHexToColor('#9CA3AF');
+       LblKategori.clProSettings.FontHorzAlign = palCenter;
+       LblKategori.SetclProSettings(LblKategori.clProSettings);
+    }
+  except
+    ShowMessage('C%izim hatasi%: ' + LastExceptionMessage);
+  }
+}
+
+void FbRezGeldi;
+{
+  RezKartlariCiz(RestR.Response);
+  RestR.Free;
+  RestR = Nil;
+}
+
+void FbSayacRezGeldi;
+{
+  if (RestR.Response == 'null')
+  {
+    SayacR = 0;
+  }
+  else
+  {
+    SayacR = StrToInt(RestR.Response);
+  }
+
+  RestR.Free;
+  RestR = Nil;
+
+  if (SayacR > 0)
+  {
+    RestR = TclRest.Create;
+    RestR.Accept = 'application/json';
+    RestR.ContentType = 'application/json';
+    RestR.ConnectTimeOut = 60000;
+    RestR.BaseURL = FB_URL_R + 'TBLLISTINGS.json';
+    RestR.Method = rmGet;
+    RestR.OnCompleted = 'FbRezGeldi';
+    RestR.ExecuteAsync;
+  }
+}
+
+void RezervasyonlariYenile;
+{
+  if (RezForm == nil)
+  {
+  }
+  else
+  {
+    try
+      if (ScrollRez <> nil)
+      {
+        ScrollRez.Free;
+      }
+      YenilemeNoR = YenilemeNoR + 1;
+
+      ScrollRez = RezForm.AddNewVertScrollBox(RezForm, 'ScrollRez_' + IntToStr(YenilemeNoR));
+      ScrollRez.Align = alClient;
+      ScrollRez.Margins.Top = 15;
+      ScrollRez.Margins.Left = 20;
+      ScrollRez.Margins.Right = 20;
+      ScrollRez.Margins.Bottom = 20;
+
+      RestR = TclRest.Create;
+      RestR.Accept = 'application/json';
+      RestR.ContentType = 'application/json';
+      RestR.ConnectTimeOut = 60000;
+      RestR.BaseURL = FB_URL_R + 'SAYACILAN.json';
+      RestR.Method = rmGet;
+      RestR.OnCompleted = 'FbSayacRezGeldi';
+      RestR.ExecuteAsync;
+    except
+      ShowMessage('Liste Hata: ' + LastExceptionMessage);
+    }
+  }
+}
+
+void AcNgoRezervasyonFormu;
+{
+  FB_URL_R = 'https://replate-c29bb-default-rtdb.europe-west1.firebasedatabase.app/';
+
+  RezForm = TclForm.Create(Self);
+  ScrollRez = Nil;
+  RezForm.SetFormColor('#111827', '', clGNone);
+  RezForm.BtnGoBack.Visible = True;
+  RezForm.BtnFormMenu.Visible = False;
+
+  TRR('Rezervasyonlari%m');
+  LblBaslikR = RezForm.AddNewProLabel(RezForm, 'LblBaslikR', TRSonucR);
+  LblBaslikR.Align = alTop; LblBaslikR.Height = 50; LblBaslikR.Margins.Top = 15;
+  LblBaslikR.clProSettings.FontSize = 20;
+  LblBaslikR.clProSettings.FontColor = clAlphaColor.clHexToColor('#F9FAFB');
+  LblBaslikR.clProSettings.FontHorzAlign = palCenter;
+  LblBaslikR.clProSettings.TextSettings.Font.Style = [fsBold];
+  LblBaslikR.SetclProSettings(LblBaslikR.clProSettings);
+
+  YenilemeNoR = 0;
+
+  RezervasyonlariYenile;
+
+  RezForm.Run;
+}

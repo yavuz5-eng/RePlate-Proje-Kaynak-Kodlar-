@@ -1,0 +1,228 @@
+var
+  NGecmisForm     : TclForm;
+  LblBaslikNG     : TclProLabel;
+  ScrollNGecmis   : TclVertScrollBox;
+  YenilemeNoNG    : Integer;
+  TRSonucNG       : String;
+  RestNG          : TclRest;
+  FB_URL_NG       : String;
+  SayacNG         : Integer;
+  G_AktifAd       : String; // STK'nın adı buraya aktarılacak
+
+void TRDegistirNG(AKod : String; AHarf : String);
+{
+  while (Pos(AKod, TRSonucNG) > 0)
+  {
+    TRSonucNG = Copy(TRSonucNG, 1, Pos(AKod, TRSonucNG) - 1) + AHarf + Copy(TRSonucNG, Pos(AKod, TRSonucNG) + 2, 100000);
+  }
+}
+
+void TRNG(AMetin : String);
+{
+  TRSonucNG = AMetin;
+  TRDegistirNG('c%', Chr(231));
+  TRDegistirNG('C%', Chr(199));
+  TRDegistirNG('g%', Chr(287));
+  TRDegistirNG('G%', Chr(286));
+  TRDegistirNG('s%', Chr(351));
+  TRDegistirNG('S%', Chr(350));
+  TRDegistirNG('i%', Chr(305));
+  TRDegistirNG('I%', Chr(304));
+  TRDegistirNG('u%', Chr(252));
+  TRDegistirNG('U%', Chr(220));
+  TRDegistirNG('o%', Chr(246));
+  TRDegistirNG('O%', Chr(214));
+}
+
+void NgoGecmisKartlariCiz(AJson : String);
+var
+  Kart : TclProPanel;
+  PnlSag : TclProPanel;
+  PnlSol : TclProPanel;
+  LblAd : TclProLabel;
+  LblFiyat : TclProLabel;
+  LblAlt : TclProLabel;
+  LblBadge : TclProLabel;
+  k : Integer;
+  GorunenNo : Integer;
+  IlanAd : String;
+  Durum : String;
+  RezerveEden : String;
+  TamAltMetin : String;
+{
+  try
+    GorunenNo = 0;
+
+    for k = 2001 to SayacNG
+    {
+      if (Pos('"' + IntToStr(k) + '"', AJson) > 0)
+      {
+        Durum = Clomosy.CLParseJSON(AJson, IntToStr(k) + '.durum');
+
+        // SADECE TAMAMLANANLARI FİLTRELE
+        if (Durum == 'tamamlandi')
+        {
+          RezerveEden = Clomosy.CLParseJSON(AJson, IntToStr(k) + '.rezerveEdenAd');
+
+          // SADECE AKTİF STK'NIN ALDIKLARI
+          if (RezerveEden == G_AktifAd)
+          {
+            IlanAd = Clomosy.CLParseJSON(AJson, IntToStr(k) + '.urunAd');
+
+            Kart = NGecmisForm.AddNewProPanel(ScrollNGecmis, 'NGKart_' + IntToStr(YenilemeNoNG) + '_' + IntToStr(GorunenNo));
+            Kart.Align = alTop; Kart.Height = 100; Kart.Margins.Top = 10;
+            Kart.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#1F2937');
+            Kart.clProSettings.BorderColor = clAlphaColor.clHexToColor('#10B981'); // Yeşil çerçeve
+            Kart.clProSettings.BorderWidth = 2;
+            Kart.clProSettings.RoundHeight = 10; Kart.clProSettings.RoundWidth = 10;
+            Kart.SetclProSettings(Kart.clProSettings);
+
+            // --- YENİ MİMARİ: SAĞ VE SOL PANELLER ---
+
+            // 1. SAĞ PANEL (Teslim Alındı Etiketi)
+            PnlSag = NGecmisForm.AddNewProPanel(Kart, 'PnlSag_' + IntToStr(YenilemeNoNG) + '_' + IntToStr(GorunenNo));
+            PnlSag.Align = alRight; 
+            PnlSag.Width = 100;
+            
+            TRNG('TESLI%M ALI%NDI%'); // STK için teslim alındı
+            LblBadge = NGecmisForm.AddNewProLabel(PnlSag, 'LblBadge_' + IntToStr(YenilemeNoNG) + '_' + IntToStr(GorunenNo), TRSonucNG);
+            LblBadge.Align = alCenter;
+            LblBadge.Height = 35;
+            LblBadge.Width = 85;
+            LblBadge.clProSettings.FontSize = 10;
+            LblBadge.clProSettings.FontColor = clAlphaColor.clHexToColor('#10B981');
+            LblBadge.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#D1FAE5');
+            LblBadge.clProSettings.FontHorzAlign = palCenter;
+            LblBadge.clProSettings.FontVertAlign = palCenter;
+            LblBadge.clProSettings.TextSettings.Font.Style = [fsBold];
+            LblBadge.clProSettings.RoundHeight = 6;
+            LblBadge.clProSettings.RoundWidth = 6;
+            LblBadge.SetclProSettings(LblBadge.clProSettings);
+
+            // 2. SOL PANEL (Yazılar)
+            PnlSol = NGecmisForm.AddNewProPanel(Kart, 'PnlSol_' + IntToStr(YenilemeNoNG) + '_' + IntToStr(GorunenNo));
+            PnlSol.Align = alClient;
+            
+            LblAd = NGecmisForm.AddNewProLabel(PnlSol, 'NGLblAd_' + IntToStr(YenilemeNoNG) + '_' + IntToStr(GorunenNo), IlanAd);
+            LblAd.Align = alTop; LblAd.Height = 26; LblAd.Margins.Top = 10; LblAd.Margins.Left = 15;
+            LblAd.clProSettings.FontSize = 15;
+            LblAd.clProSettings.FontColor = clAlphaColor.clHexToColor('#F9FAFB');
+            LblAd.clProSettings.TextSettings.Font.Style = [fsBold];
+            LblAd.SetclProSettings(LblAd.clProSettings);
+
+            TRNG('Birim Fiyati%: ' + Clomosy.CLParseJSON(AJson, IntToStr(k) + '.indirimliFiyat') + ' TL');
+            LblFiyat = NGecmisForm.AddNewProLabel(PnlSol, 'NGLblFyt_' + IntToStr(YenilemeNoNG) + '_' + IntToStr(GorunenNo), TRSonucNG);
+            LblFiyat.Align = alTop; LblFiyat.Height = 24; LblFiyat.Margins.Top = 2; LblFiyat.Margins.Left = 15;
+            LblFiyat.clProSettings.FontSize = 14;
+            LblFiyat.clProSettings.FontColor = clAlphaColor.clHexToColor('#34D399');
+            LblFiyat.clProSettings.TextSettings.Font.Style = [fsBold];
+            LblFiyat.SetclProSettings(LblFiyat.clProSettings);
+
+            // STK İçin Alt Metin (Hangi marketten teslim alındı)
+            TamAltMetin = Clomosy.CLParseJSON(AJson, IntToStr(k) + '.adet') + ' adet | Teslim Eden: ' + 
+                          Clomosy.CLParseJSON(AJson, IntToStr(k) + '.marketAd');
+            TRNG(TamAltMetin);
+            LblAlt = NGecmisForm.AddNewProLabel(PnlSol, 'NGLblAlt_' + IntToStr(YenilemeNoNG) + '_' + IntToStr(GorunenNo), TRSonucNG);
+            LblAlt.Align = alBottom; LblAlt.Height = 22; LblAlt.Margins.Bottom = 8; LblAlt.Margins.Left = 15;
+            LblAlt.clProSettings.FontSize = 12;
+            LblAlt.clProSettings.FontColor = clAlphaColor.clHexToColor('#9CA3AF');
+            LblAlt.SetclProSettings(LblAlt.clProSettings);
+
+            GorunenNo = GorunenNo + 1;
+          }
+        }
+      }
+    }
+    
+    if (GorunenNo == 0)
+    {
+       TRNG('Henüz teslim aldig%i%ni%z bir siparis% bulunmuyor.');
+       LblBadge = NGecmisForm.AddNewProLabel(ScrollNGecmis, 'LblBosNG', TRSonucNG);
+       LblBadge.Align = alTop; LblBadge.Height = 50; LblBadge.Margins.Top = 20;
+       LblBadge.clProSettings.FontSize = 12;
+       LblBadge.clProSettings.FontColor = clAlphaColor.clHexToColor('#9CA3AF');
+       LblBadge.clProSettings.FontHorzAlign = palCenter;
+       LblBadge.SetclProSettings(LblBadge.clProSettings);
+    }
+  except
+    ShowMessage('C%izim hatasi%: ' + LastExceptionMessage);
+  }
+}
+
+void FbNgoGecmisGeldi;
+{
+  NgoGecmisKartlariCiz(RestNG.Response);
+  RestNG.Free;
+  RestNG = Nil;
+}
+
+void FbSayacNgoGecmisGeldi;
+{
+  if (RestNG.Response == 'null') { SayacNG = 0; }
+  else { SayacNG = StrToInt(RestNG.Response); }
+
+  RestNG.Free; RestNG = Nil;
+
+  if (SayacNG > 0)
+  {
+    RestNG = TclRest.Create;
+    RestNG.Accept = 'application/json';
+    RestNG.ContentType = 'application/json';
+    RestNG.ConnectTimeOut = 60000;
+    RestNG.BaseURL = FB_URL_NG + 'TBLLISTINGS.json';
+    RestNG.Method = rmGet;
+    RestNG.OnCompleted = 'FbNgoGecmisGeldi';
+    RestNG.ExecuteAsync;
+  }
+}
+
+void NgoGecmisYenile;
+{
+  if (NGecmisForm <> nil)
+  {
+    try
+      if (ScrollNGecmis <> nil) { ScrollNGecmis.Free; }
+      YenilemeNoNG = YenilemeNoNG + 1;
+
+      ScrollNGecmis = NGecmisForm.AddNewVertScrollBox(NGecmisForm, 'ScrollNGecmis_' + IntToStr(YenilemeNoNG));
+      ScrollNGecmis.Align = alClient;
+      ScrollNGecmis.Margins.Top = 15; ScrollNGecmis.Margins.Left = 20;
+      ScrollNGecmis.Margins.Right = 20; ScrollNGecmis.Margins.Bottom = 20;
+
+      RestNG = TclRest.Create;
+      RestNG.Accept = 'application/json';
+      RestNG.ContentType = 'application/json';
+      RestNG.ConnectTimeOut = 60000;
+      RestNG.BaseURL = FB_URL_NG + 'SAYACILAN.json';
+      RestNG.Method = rmGet;
+      RestNG.OnCompleted = 'FbSayacNgoGecmisGeldi';
+      RestNG.ExecuteAsync;
+    except
+      ShowMessage('Liste Hata: ' + LastExceptionMessage);
+    }
+  }
+}
+
+void AcNgoGecmisFormu;
+{
+  FB_URL_NG = 'https://replate-c29bb-default-rtdb.europe-west1.firebasedatabase.app/';
+
+  NGecmisForm = TclForm.Create(Self);
+  ScrollNGecmis = Nil;
+  NGecmisForm.SetFormColor('#111827', '', clGNone);
+  NGecmisForm.BtnGoBack.Visible = True;
+  NGecmisForm.BtnFormMenu.Visible = False;
+
+  TRNG('Siparis% Gec%mis%i');
+  LblBaslikNG = NGecmisForm.AddNewProLabel(NGecmisForm, 'LblBaslikNG', TRSonucNG);
+  LblBaslikNG.Align = alTop; LblBaslikNG.Height = 50; LblBaslikNG.Margins.Top = 15;
+  LblBaslikNG.clProSettings.FontSize = 20;
+  LblBaslikNG.clProSettings.FontColor = clAlphaColor.clHexToColor('#F9FAFB');
+  LblBaslikNG.clProSettings.FontHorzAlign = palCenter;
+  LblBaslikNG.clProSettings.TextSettings.Font.Style = [fsBold];
+  LblBaslikNG.SetclProSettings(LblBaslikNG.clProSettings);
+
+  YenilemeNoNG = 0;
+  NgoGecmisYenile;
+  NGecmisForm.Run;
+}

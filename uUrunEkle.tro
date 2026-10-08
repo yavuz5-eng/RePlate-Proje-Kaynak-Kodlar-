@@ -1,0 +1,270 @@
+uses uUrunListesi;
+uses uAnaSayfa;
+
+var
+  EkleForm        : TclForm;
+  MainScrollBox   : TclVertScrollBox; // Layout yerine ScrollBox kullanıyoruz
+  PnlKart         : TclProPanel;
+  LblBaslik       : TclProLabel;
+  PnlComboWrapper : TclProPanel; 
+  CmbKategori     : TclComboBox;
+  EdtAd           : TclProEdit;
+  EdtFiyat        : TclProEdit;
+  EdtStok         : TclProEdit;
+  EdtSKT          : TclProEdit;
+  EdtMaxTalep     : TclProEdit;
+  BtnKaydet       : TclProButton;
+  LblHata         : TclProLabel;
+  TRSonucE        : String;
+  RestE           : TclRest;
+  FB_URL_E        : String;
+  YeniIDE         : Integer;
+
+void TRDegistirE(AKod : String; AHarf : String);
+{
+  while (Pos(AKod, TRSonucE) > 0)
+  {
+    TRSonucE = Copy(TRSonucE, 1, Pos(AKod, TRSonucE) - 1) + AHarf + Copy(TRSonucE, Pos(AKod, TRSonucE) + 2, 100000);
+  }
+}
+
+void TRE(AMetin : String);
+{
+  TRSonucE = AMetin;
+  TRDegistirE('g%', Chr(287));
+  TRDegistirE('G%', Chr(286));
+  TRDegistirE('s%', Chr(351));
+  TRDegistirE('S%', Chr(350));
+  TRDegistirE('i%', Chr(305));
+  TRDegistirE('I%', Chr(304));
+}
+
+void ESayacYazildi;
+{
+  RestE.Free;
+  RestE = Nil;
+
+  try
+    uUrunListesi.ListeyiYenile;
+    uAnaSayfa.OzetiYenile;
+  except
+  }
+
+  ShowMessage('Ürün kaydedildi: ' + EdtAd.Text);
+  
+  if (EkleForm <> nil)
+  {
+    EkleForm.Close;
+  }
+}
+
+void EUrunYazildi;
+{
+  RestE.Free;
+  RestE = Nil;
+
+  RestE = TclRest.Create;
+  RestE.Accept = 'application/json';
+  RestE.ContentType = 'application/json';
+  RestE.ConnectTimeOut = 60000;
+  RestE.BaseURL = FB_URL_E + 'SAYAC.json';
+  RestE.Method = rmPUT;
+  RestE.Body = IntToStr(YeniIDE);
+  RestE.OnCompleted = 'ESayacYazildi';
+  RestE.ExecuteAsync;
+}
+
+void ESayacGeldi;
+{
+  if (RestE.Response == 'null')
+  {
+    YeniIDE = 1001;
+  }
+  else
+  {
+    YeniIDE = StrToInt(RestE.Response) + 1;
+  }
+
+  RestE.Free;
+  RestE = Nil;
+
+  RestE = TclRest.Create;
+  RestE.Accept = 'application/json';
+  RestE.ContentType = 'application/json';
+  RestE.ConnectTimeOut = 60000;
+  RestE.BaseURL = FB_URL_E + 'TBLPRODUCTS/' + IntToStr(YeniIDE) + '.json';
+  RestE.Method = rmPUT;
+  
+  RestE.Body = '{"ad":"' + EdtAd.Text + '","kategori":"' + CmbKategori.Text + '","fiyat":"' + EdtFiyat.Text + '","stok":"' + EdtStok.Text + '","skt":"' + EdtSKT.Text + '","maxTalep":"' + EdtMaxTalep.Text + '","marketAd":"' + uUrunListesi.G_MarketAd + '"}';
+  
+  RestE.OnCompleted = 'EUrunYazildi';
+  RestE.ExecuteAsync;
+}
+
+void KaydetTiklandi;
+{
+  if ((EdtAd.Text == '') || (CmbKategori.Text == '') || (EdtFiyat.Text == '') || (EdtStok.Text == '') || (EdtSKT.Text == '') || (EdtMaxTalep.Text == ''))
+  {
+    TRE('Tüm alanları% doldurun');
+    LblHata.Text = TRSonucE;
+    LblHata.Visible = True;
+  }
+  else
+  {
+    try
+      RestE = TclRest.Create;
+      RestE.Accept = 'application/json';
+      RestE.ContentType = 'application/json';
+      RestE.ConnectTimeOut = 60000;
+      RestE.BaseURL = FB_URL_E + 'SAYAC.json';
+      RestE.Method = rmGet;
+      RestE.OnCompleted = 'ESayacGeldi';
+      RestE.ExecuteAsync;
+    except
+      ShowMessage('Hata: ' + LastExceptionMessage);
+    }
+  }
+}
+
+void VirtualKeyboardShow;
+{
+  // Klavye açıldığında ScrollBox'ın altından klavye boyu kadar boşluk bırakır
+  MainScrollBox.Margins.Bottom = EkleForm.clVKBoundsHeight;
+}
+
+void VirtualKeyboardHidden;
+{
+  // Klavye kapandığında ekran orijinal (0 boşluklu) haline döner
+  MainScrollBox.Margins.Bottom = 0;
+}
+
+void AcUrunEkleFormu;
+{
+  FB_URL_E = 'https://replate-c29bb-default-rtdb.europe-west1.firebasedatabase.app/';
+
+  EkleForm = TclForm.Create(Self);
+  EkleForm.SetFormColor('#111827', '', clGNone);
+  EkleForm.BtnGoBack.Visible = True;
+
+  EkleForm.AddNewEvent(EkleForm, tbeOnVirtualKeyboardShown, 'VirtualKeyboardShow');
+  EkleForm.AddNewEvent(EkleForm, tbeOnVirtualKeyboardHidden, 'VirtualKeyboardHidden');
+
+  // ScrollBox Ekleniyor
+  MainScrollBox = EkleForm.AddNewVertScrollBox(EkleForm, 'MainScrollBox');
+  MainScrollBox.Align = alClient;
+
+  // PnlKart artık MainScrollBox içinde ve alTop hizalamasında
+  PnlKart = EkleForm.AddNewProPanel(MainScrollBox, 'PnlKart');
+  PnlKart.Align = alTop;
+  PnlKart.Margins.Top = 50; // Ortalanmış hissi vermek için üstten boşluk
+  PnlKart.Margins.Bottom = 50;
+  PnlKart.Width = 300;
+  PnlKart.Height = 600;
+  PnlKart.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#1F2937');
+  PnlKart.clProSettings.BorderColor = clAlphaColor.clHexToColor('#374151');
+  PnlKart.clProSettings.BorderWidth = 1;
+  PnlKart.clProSettings.RoundHeight = 14;
+  PnlKart.clProSettings.RoundWidth = 14;
+  PnlKart.SetclProSettings(PnlKart.clProSettings);
+
+  // 1. BAŞLIK
+  LblBaslik = EkleForm.AddNewProLabel(PnlKart, 'LblBaslik', 'Yeni Ürün Ekle');
+  LblBaslik.Align = alTop; LblBaslik.Height = 35; LblBaslik.Margins.Top = 25;
+  LblBaslik.clProSettings.FontSize = 20;
+  LblBaslik.clProSettings.FontColor = clAlphaColor.clHexToColor('#F9FAFB');
+  LblBaslik.clProSettings.FontHorzAlign = palCenter;
+  LblBaslik.clProSettings.TextSettings.Font.Style = [fsBold];
+  LblBaslik.SetclProSettings(LblBaslik.clProSettings);
+
+  // 2. KATEGORİ SEÇİMİ 
+  PnlComboWrapper = EkleForm.AddNewProPanel(PnlKart, 'PnlComboWrapper');
+  PnlComboWrapper.Align = alTop;
+  PnlComboWrapper.Height = 44;
+  PnlComboWrapper.Margins.Top = 15;
+  PnlComboWrapper.Margins.Left = 25;
+  PnlComboWrapper.Margins.Right = 25;
+  PnlComboWrapper.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#E5E7EB'); 
+  PnlComboWrapper.clProSettings.BorderColor = clAlphaColor.clHexToColor('#4B5563');
+  PnlComboWrapper.clProSettings.BorderWidth = 1;
+  PnlComboWrapper.clProSettings.RoundHeight = 8;
+  PnlComboWrapper.clProSettings.RoundWidth = 8;
+  PnlComboWrapper.SetclProSettings(PnlComboWrapper.clProSettings);
+
+  CmbKategori = EkleForm.AddNewComboBox(PnlComboWrapper, 'CmbKategori');
+  CmbKategori.Align = alClient; 
+  CmbKategori.Margins.Top = 2; CmbKategori.Margins.Bottom = 2; CmbKategori.Margins.Left = 5; CmbKategori.Margins.Right = 5;
+  CmbKategori.AddItem('Meyve & Sebze', '1');
+  CmbKategori.AddItem('Süt Ürünleri', '2');
+  CmbKategori.AddItem('Et & Tavuk', '3');
+  CmbKategori.AddItem('Unlu Mamuller', '4');
+  CmbKategori.AddItem('Genel', '5');
+
+  // 3. ÜRÜN ADI
+  TRE('Ürün Adi%');
+  EdtAd = EkleForm.AddNewProEdit(PnlKart, 'EdtAd', TRSonucE);
+  EdtAd.Align = alTop; EdtAd.Height = 44; EdtAd.Margins.Top = 12; EdtAd.Margins.Left = 25; EdtAd.Margins.Right = 25;
+  EdtAd.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#374151');
+  EdtAd.clProSettings.FontColor = clAlphaColor.clHexToColor('#F9FAFB');
+  EdtAd.clProSettings.BorderColor = clAlphaColor.clHexToColor('#4B5563');
+  EdtAd.clProSettings.BorderWidth = 1; EdtAd.clProSettings.RoundHeight = 8; EdtAd.clProSettings.RoundWidth = 8;
+  EdtAd.SetclProSettings(EdtAd.clProSettings);
+
+  // 4. FİYAT
+  EdtFiyat = EkleForm.AddNewProEdit(PnlKart, 'EdtFiyat', 'Fiyat (TL)');
+  EdtFiyat.Align = alTop; EdtFiyat.Height = 44; EdtFiyat.Margins.Top = 12; EdtFiyat.Margins.Left = 25; EdtFiyat.Margins.Right = 25;
+  EdtFiyat.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#374151');
+  EdtFiyat.clProSettings.FontColor = clAlphaColor.clHexToColor('#F9FAFB');
+  EdtFiyat.clProSettings.BorderColor = clAlphaColor.clHexToColor('#4B5563');
+  EdtFiyat.clProSettings.BorderWidth = 1; EdtFiyat.clProSettings.RoundHeight = 8; EdtFiyat.clProSettings.RoundWidth = 8;
+  EdtFiyat.SetclProSettings(EdtFiyat.clProSettings);
+
+  // 5. STOK
+  EdtStok = EkleForm.AddNewProEdit(PnlKart, 'EdtStok', 'Stok Adedi');
+  EdtStok.Align = alTop; EdtStok.Height = 44; EdtStok.Margins.Top = 12; EdtStok.Margins.Left = 25; EdtStok.Margins.Right = 25;
+  EdtStok.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#374151');
+  EdtStok.clProSettings.FontColor = clAlphaColor.clHexToColor('#F9FAFB');
+  EdtStok.clProSettings.BorderColor = clAlphaColor.clHexToColor('#4B5563');
+  EdtStok.clProSettings.BorderWidth = 1; EdtStok.clProSettings.RoundHeight = 8; EdtStok.clProSettings.RoundWidth = 8;
+  EdtStok.SetclProSettings(EdtStok.clProSettings);
+
+  // 6. SKT
+  EdtSKT = EkleForm.AddNewProEdit(PnlKart, 'EdtSKT', 'SKT (2026-07-15)');
+  EdtSKT.Align = alTop; EdtSKT.Height = 44; EdtSKT.Margins.Top = 12; EdtSKT.Margins.Left = 25; EdtSKT.Margins.Right = 25;
+  EdtSKT.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#374151');
+  EdtSKT.clProSettings.FontColor = clAlphaColor.clHexToColor('#F9FAFB');
+  EdtSKT.clProSettings.BorderColor = clAlphaColor.clHexToColor('#4B5563');
+  EdtSKT.clProSettings.BorderWidth = 1; EdtSKT.clProSettings.RoundHeight = 8; EdtSKT.clProSettings.RoundWidth = 8;
+  EdtSKT.SetclProSettings(EdtSKT.clProSettings);
+
+  // 6.5. MAKSİMUM TALEP SINIRI
+  TRE('Maks. Talep Sınırı (Örn: 5)%');
+  EdtMaxTalep = EkleForm.AddNewProEdit(PnlKart, 'EdtMaxTalep', TRSonucE);
+  EdtMaxTalep.Align = alTop; EdtMaxTalep.Height = 44; EdtMaxTalep.Margins.Top = 12; EdtMaxTalep.Margins.Left = 25; EdtMaxTalep.Margins.Right = 25;
+  EdtMaxTalep.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#374151');
+  EdtMaxTalep.clProSettings.FontColor = clAlphaColor.clHexToColor('#F9FAFB');
+  EdtMaxTalep.clProSettings.BorderColor = clAlphaColor.clHexToColor('#4B5563');
+  EdtMaxTalep.clProSettings.BorderWidth = 1; EdtMaxTalep.clProSettings.RoundHeight = 8; EdtMaxTalep.clProSettings.RoundWidth = 8;
+  EdtMaxTalep.SetclProSettings(EdtMaxTalep.clProSettings);
+
+  // 7. HATA MESAJI
+  LblHata = EkleForm.AddNewProLabel(PnlKart, 'LblHata', '');
+  LblHata.Align = alTop; LblHata.Height = 20; LblHata.Margins.Top = 5;
+  LblHata.clProSettings.FontColor = clAlphaColor.clHexToColor('#F87171');
+  LblHata.clProSettings.FontSize = 12;
+  LblHata.clProSettings.FontHorzAlign = palCenter;
+  LblHata.SetclProSettings(LblHata.clProSettings);
+  LblHata.Visible = False;
+
+  // 8. KAYDET BUTONU
+  BtnKaydet = EkleForm.AddNewProButton(PnlKart, 'BtnKaydet', 'KAYDET');
+  BtnKaydet.Align = alTop; BtnKaydet.Height = 46; BtnKaydet.Margins.Top = 10; BtnKaydet.Margins.Left = 25; BtnKaydet.Margins.Right = 25;
+  BtnKaydet.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#5B5BE5');
+  BtnKaydet.clProSettings.FontColor = clAlphaColor.clWhite;
+  BtnKaydet.clProSettings.RoundHeight = 8; BtnKaydet.clProSettings.RoundWidth = 8; BtnKaydet.clProSettings.BorderWidth = 0;
+  BtnKaydet.clProSettings.TextSettings.Font.Style = [fsBold];
+  BtnKaydet.SetclProSettings(BtnKaydet.clProSettings);
+  
+  EkleForm.AddNewEvent(BtnKaydet, tbeOnClick, 'KaydetTiklandi');
+
+  EkleForm.Run;
+}

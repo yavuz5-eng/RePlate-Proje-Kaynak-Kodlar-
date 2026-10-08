@@ -1,0 +1,246 @@
+uses uAnaSayfa;
+
+var
+  IlanOlusturForm    : TclForm;
+  PnlIlan            : TclProPanel;
+  LblBaslikI         : TclProLabel;
+  LblUrunBilgi       : TclProLabel;
+  EdtIndirimliFiyat  : TclProEdit;
+  BtnYayinla         : TclProButton;
+  RestIlan           : TclRest;
+  SayacIlan          : Integer;
+  TRSonucI           : String;
+  FB_URL_I           : String;
+  
+  // uUrunListesi'nden gönderilecek global veriler
+  G_UrunId           : String;
+  G_UrunAd           : String;
+  G_NormalFiyat      : Integer;
+  G_Adet             : Integer;
+  G_Skt              : String;
+  G_MarketAd         : String;
+
+  // YENİ: Üründen okunacak max talep sınırı
+  G_MaxTalep         : String;
+
+void TRDegistirI(AKod : String; AHarf : String);
+{
+  while (Pos(AKod, TRSonucI) > 0)
+  {
+    TRSonucI = Copy(TRSonucI, 1, Pos(AKod, TRSonucI) - 1) + AHarf + Copy(TRSonucI, Pos(AKod, TRSonucI) + 2, 100000);
+  }
+}
+
+void TRI(AMetin : String);
+{
+  TRSonucI = AMetin;
+  TRDegistirI('c%', Chr(231));
+  TRDegistirI('C%', Chr(199));
+  TRDegistirI('g%', Chr(287));
+  TRDegistirI('G%', Chr(286));
+  TRDegistirI('s%', Chr(351));
+  TRDegistirI('S%', Chr(350));
+  TRDegistirI('i%', Chr(305));
+  TRDegistirI('I%', Chr(304));
+}
+
+// ---- 4. Asama: Urun Durumunu Guncelle ----
+void UrunGuncellendi;
+{
+  RestIlan.Free;
+  RestIlan = Nil;
+
+  try
+    uAnaSayfa.OzetiYenile;
+  except
+  }
+
+  TRI('I%lan bas%ari%yla yayi%nlandi%!');
+  ShowMessage(TRSonucI);
+  IlanOlusturForm.Close;
+}
+
+// ---- 3. Asama: Sayaci Guncelle ----
+void SayacGuncellendi;
+{
+  RestIlan.Free;
+  RestIlan = Nil;
+
+  // İlan sayacı güncellendi, şimdi asıl ürünün "durum" etiketini "ilanda" yapıyoruz
+  // Not: Sadece durum alanını ezmek için URL'nin sonuna /durum.json ekliyoruz.
+  RestIlan = TclRest.Create;
+  RestIlan.Accept = 'application/json';
+  RestIlan.ContentType = 'application/json';
+  RestIlan.ConnectTimeOut = 60000;
+  RestIlan.BaseURL = FB_URL_I + 'TBLPRODUCTS/' + G_UrunId + '/durum.json';
+  RestIlan.Method = rmPUT;
+  RestIlan.Body = '"ilanda"'; // Firebase'de string kaydetmek için tırnak içinde gönderiyoruz
+  RestIlan.OnCompleted = 'UrunGuncellendi';
+  RestIlan.ExecuteAsync;
+}
+
+// ---- 2. Asama: Ilani Kaydet ----
+void IlanKaydedildi;
+{
+  RestIlan.Free;
+  RestIlan = Nil;
+
+  RestIlan = TclRest.Create;
+  RestIlan.Accept = 'application/json';
+  RestIlan.ContentType = 'application/json';
+  RestIlan.ConnectTimeOut = 60000;
+  RestIlan.BaseURL = FB_URL_I + 'SAYACILAN.json';
+  RestIlan.Method = rmPUT;
+  RestIlan.Body = IntToStr(SayacIlan);
+  RestIlan.OnCompleted = 'SayacGuncellendi';
+  RestIlan.ExecuteAsync;
+}
+
+// ---- 1. Asama: Sayaci Oku ve Ilani Yaz ----
+void SayacGeldi;
+var
+  Q : String;
+  JBody : String;
+{
+  if (RestIlan.Response == 'null')
+  {
+    SayacIlan = 2000;
+  }
+  else
+  {
+    SayacIlan = StrToInt(RestIlan.Response);
+  }
+  
+  RestIlan.Free;
+  RestIlan = Nil;
+
+  SayacIlan = SayacIlan + 1;
+  Q = Chr(34); // Cift tirnak JSON kurali
+  
+  // JSON Body'i elle kuruyoruz
+  JBody = '{';
+  JBody = JBody + Q + 'urunId' + Q + ':' + Q + G_UrunId + Q + ',';
+  JBody = JBody + Q + 'urunAd' + Q + ':' + Q + G_UrunAd + Q + ',';
+  JBody = JBody + Q + 'kategori' + Q + ':' + Q + 'Genel' + Q + ',';
+  JBody = JBody + Q + 'adet' + Q + ':' + IntToStr(G_Adet) + ',';
+  JBody = JBody + Q + 'normalFiyat' + Q + ':' + IntToStr(G_NormalFiyat) + ',';
+  JBody = JBody + Q + 'indirimliFiyat' + Q + ':' + EdtIndirimliFiyat.Text + ',';
+  JBody = JBody + Q + 'skt' + Q + ':' + Q + G_Skt + Q + ',';
+  JBody = JBody + Q + 'marketAd' + Q + ':' + Q + G_MarketAd + Q + ',';
+  JBody = JBody + Q + 'maxTalep' + Q + ':' + Q + G_MaxTalep + Q + ',';
+  JBody = JBody + Q + 'durum' + Q + ':' + Q + 'aktif' + Q;
+  JBody = JBody + '}';
+
+  RestIlan = TclRest.Create;
+  RestIlan.Accept = 'application/json';
+  RestIlan.ContentType = 'application/json';
+  RestIlan.ConnectTimeOut = 60000;
+  RestIlan.BaseURL = FB_URL_I + 'TBLLISTINGS/' + IntToStr(SayacIlan) + '.json';
+  RestIlan.Method = rmPUT;
+  RestIlan.Body = JBody;
+  RestIlan.OnCompleted = 'IlanKaydedildi';
+  RestIlan.ExecuteAsync;
+}
+
+// ---- 0. Asama: Urunden maxTalep'i oku ----
+void UrunBilgiGeldi;
+var
+  S : String;
+{
+  S = Clomosy.CLParseJSON(RestIlan.Response, 'maxTalep');
+  if (S == '') { G_MaxTalep = '0'; } else { G_MaxTalep = S; }
+
+  RestIlan.Free;
+  RestIlan = Nil;
+
+  // Simdi ilan sayacini oku
+  RestIlan = TclRest.Create;
+  RestIlan.Accept = 'application/json';
+  RestIlan.ContentType = 'application/json';
+  RestIlan.ConnectTimeOut = 60000;
+  RestIlan.BaseURL = FB_URL_I + 'SAYACILAN.json';
+  RestIlan.Method = rmGet;
+  RestIlan.OnCompleted = 'SayacGeldi';
+  RestIlan.ExecuteAsync;
+}
+
+void YayinlaTiklandi;
+{
+  if (EdtIndirimliFiyat.Text == '')
+  {
+    TRI('Lütfen indirimli fiyati% girin.');
+    ShowMessage(TRSonucI);
+  }
+  else
+  {
+    // Once urunun maxTalep degerini oku
+    RestIlan = TclRest.Create;
+    RestIlan.Accept = 'application/json';
+    RestIlan.ContentType = 'application/json';
+    RestIlan.ConnectTimeOut = 60000;
+    RestIlan.BaseURL = FB_URL_I + 'TBLPRODUCTS/' + G_UrunId + '.json';
+    RestIlan.Method = rmGet;
+    RestIlan.OnCompleted = 'UrunBilgiGeldi';
+    RestIlan.ExecuteAsync;
+  }
+}
+
+void AcIlanOlusturFormu;
+{
+  FB_URL_I = 'https://replate-c29bb-default-rtdb.europe-west1.firebasedatabase.app/';
+
+  IlanOlusturForm = TclForm.Create(Self);
+  IlanOlusturForm.SetFormColor('#0F172A', '', clGNone);
+
+  PnlIlan = IlanOlusturForm.AddNewProPanel(IlanOlusturForm, 'PnlIlan');
+  PnlIlan.Align = alCenter;
+  PnlIlan.Width = 320;
+  PnlIlan.Height = 350;
+  PnlIlan.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#1E293B');
+  PnlIlan.clProSettings.BorderColor = clAlphaColor.clHexToColor('#334155');
+  PnlIlan.clProSettings.BorderWidth = 1;
+  PnlIlan.clProSettings.RoundHeight = 18;
+  PnlIlan.clProSettings.RoundWidth = 18;
+  PnlIlan.SetclProSettings(PnlIlan.clProSettings);
+
+  TRI('I%lana Dönüs%tür');
+  LblBaslikI = IlanOlusturForm.AddNewProLabel(PnlIlan, 'LblBaslikI', TRSonucI);
+  LblBaslikI.Align = alTop; LblBaslikI.Height = 36; LblBaslikI.Margins.Top = 20;
+  LblBaslikI.clProSettings.FontSize = 20;
+  LblBaslikI.clProSettings.FontColor = clAlphaColor.clHexToColor('#F8FAFC');
+  LblBaslikI.clProSettings.FontHorzAlign = palCenter;
+  LblBaslikI.clProSettings.TextSettings.Font.Style = [fsBold];
+  LblBaslikI.SetclProSettings(LblBaslikI.clProSettings);
+
+  LblUrunBilgi = IlanOlusturForm.AddNewProLabel(PnlIlan, 'LblUrunBilgi', G_UrunAd + ' (Normal Fiyat: ' + IntToStr(G_NormalFiyat) + ' TL)');
+  LblUrunBilgi.Align = alTop; LblUrunBilgi.Height = 25; LblUrunBilgi.Margins.Top = 15;
+  LblUrunBilgi.clProSettings.FontSize = 14;
+  LblUrunBilgi.clProSettings.FontColor = clAlphaColor.clHexToColor('#10B981');
+  LblUrunBilgi.clProSettings.FontHorzAlign = palCenter;
+  LblUrunBilgi.SetclProSettings(LblUrunBilgi.clProSettings);
+
+  TRI('I%ndirimli Fiyat (TL)');
+  EdtIndirimliFiyat = IlanOlusturForm.AddNewProEdit(PnlIlan, 'EdtIndirimliFiyat', TRSonucI);
+  EdtIndirimliFiyat.Align = alTop; EdtIndirimliFiyat.Height = 44; EdtIndirimliFiyat.Margins.Top = 25; EdtIndirimliFiyat.Margins.Left = 30; EdtIndirimliFiyat.Margins.Right = 30;
+  EdtIndirimliFiyat.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#0F172A');
+  EdtIndirimliFiyat.clProSettings.FontColor = clAlphaColor.clHexToColor('#F8FAFC');
+  EdtIndirimliFiyat.clProSettings.BorderColor = clAlphaColor.clHexToColor('#334155');
+  EdtIndirimliFiyat.clProSettings.BorderWidth = 1;
+  EdtIndirimliFiyat.clProSettings.RoundHeight = 10; EdtIndirimliFiyat.clProSettings.RoundWidth = 10;
+  EdtIndirimliFiyat.SetclProSettings(EdtIndirimliFiyat.clProSettings);
+
+  TRI('I%LANI YAYINLA');
+  BtnYayinla = IlanOlusturForm.AddNewProButton(PnlIlan, 'BtnYayinla', TRSonucI);
+  BtnYayinla.Align = alBottom; BtnYayinla.Height = 48; BtnYayinla.Margins.Bottom = 20; BtnYayinla.Margins.Left = 30; BtnYayinla.Margins.Right = 30;
+  BtnYayinla.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#5B5BE5');
+  BtnYayinla.clProSettings.FontColor = clAlphaColor.clWhite;
+  BtnYayinla.clProSettings.FontSize = 14;
+  BtnYayinla.clProSettings.RoundHeight = 12; BtnYayinla.clProSettings.RoundWidth = 12;
+  BtnYayinla.clProSettings.BorderWidth = 0;
+  BtnYayinla.clProSettings.TextSettings.Font.Style = [fsBold];
+  BtnYayinla.SetclProSettings(BtnYayinla.clProSettings);
+
+  IlanOlusturForm.AddNewEvent(BtnYayinla, tbeOnClick, 'YayinlaTiklandi');
+
+  IlanOlusturForm.Run;
+}

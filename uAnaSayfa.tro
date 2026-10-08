@@ -1,0 +1,327 @@
+uses uProfil, uMarketGecmis; 
+
+var
+  AnaForm      : TclForm;
+  LblLogo      : TclProLabel;
+  LblSlogan    : TclProLabel;
+  LblKullanici : TclProLabel;
+  LblCikis     : TclProLabel; 
+  PnlUst       : TclProPanel; 
+  ImgProfil    : TclImage;    
+  PnlOzet      : TclProPanel;
+  LblOzet      : TclProLabel;
+  BtnUrunler   : TclProButton;
+  BtnYeniUrun  : TclProButton;
+  BtnIlanlar   : TclProButton;
+  BtnGecmis    : TclProButton; 
+  LblAltBilgi  : TclProLabel;
+  TRSonucA     : String;
+  RestA        : TclRest;
+  FB_URL_A     : String;
+  SayacA       : Integer;
+  G_MarketAdA  : String;
+
+void TRDegistirA(AKod : String; AHarf : String);
+{
+  while (Pos(AKod, TRSonucA) > 0)
+  {
+    TRSonucA = Copy(TRSonucA, 1, Pos(AKod, TRSonucA) - 1) + AHarf + Copy(TRSonucA, Pos(AKod, TRSonucA) + 2, 100000);
+  }
+}
+
+void TRA(AMetin : String);
+{
+  TRSonucA = AMetin;
+  TRDegistirA('c%', Chr(231)); 
+  TRDegistirA('C%', Chr(199)); 
+  TRDegistirA('g%', Chr(287));
+  TRDegistirA('G%', Chr(286));
+  TRDegistirA('s%', Chr(351));
+  TRDegistirA('S%', Chr(350));
+  TRDegistirA('i%', Chr(305)); 
+  TRDegistirA('I%', Chr(304)); 
+  TRDegistirA('u%', Chr(252)); 
+  TRDegistirA('U%', Chr(220)); 
+  TRDegistirA('o%', Chr(246)); 
+  TRDegistirA('O%', Chr(214)); 
+}
+
+void CikisTiklandi;
+{
+  try
+    Clomosy.DBSQLiteQuery.Sql.Text = 'DELETE FROM TBLHATIRLA';
+    Clomosy.DBSQLiteQuery.OpenOrExecute;
+  except
+  }
+  
+  if (uProfil.ProfilForm <> nil)
+  {
+    uProfil.ProfilForm.Close;
+  }
+  
+  if (AnaForm <> nil)
+  {
+    AnaForm.Close;
+  }
+}
+
+void ProfilTiklandi;
+{
+  uProfil.P_AktifAd = G_MarketAdA; 
+  uProfil.P_AktifRol = 'market';   
+  
+  uProfil.AcProfilFormu;
+  
+  uProfil.BtnCikis.OnClick = 'CikisTiklandi'; 
+}
+
+void GecmisTiklandi;
+{
+  uMarketGecmis.G_AktifAd = G_MarketAdA; 
+  uMarketGecmis.AcMarketGecmisFormu;
+}
+
+void OzetHesapla(AJson : String);
+var
+  k : Integer;
+  KalanGun : Integer;
+  SktStr : String;
+  UrunAd : String;
+  Toplam : Integer;
+  Kritik : Integer;
+  Gecmis : Integer;
+  UrunMarketAd : String; 
+{
+  try
+    Toplam = 0;
+    Kritik = 0;
+    Gecmis = 0;
+
+    for k = 1001 to SayacA
+    {
+      if (Pos('"' + IntToStr(k) + '"', AJson) > 0)
+      {
+        UrunAd = Clomosy.CLParseJSON(AJson, IntToStr(k) + '.ad');
+        SktStr = Clomosy.CLParseJSON(AJson, IntToStr(k) + '.skt');
+
+        try
+          UrunMarketAd = Clomosy.CLParseJSON(AJson, IntToStr(k) + '.marketAd');
+        except
+          UrunMarketAd = ''; 
+        }
+
+        if ((UrunAd <> '') && (SktStr <> '') && (UrunMarketAd == G_MarketAdA))
+        {
+          KalanGun = Trunc(EncodeDate(StrToInt(Copy(SktStr, 1, 4)), StrToInt(Copy(SktStr, 6, 2)), StrToInt(Copy(SktStr, 9, 2))) - Date);
+
+          Toplam = Toplam + 1;
+          if (KalanGun < 0)
+          {
+            Gecmis = Gecmis + 1;
+          }
+          else
+          {
+            if (KalanGun < 3)
+            {
+              Kritik = Kritik + 1;
+            }
+          }
+        }
+      }
+    }
+
+    TRA(IntToStr(Toplam) + ' ürün  |  ' + IntToStr(Kritik) + ' kritik  |  ' + IntToStr(Gecmis) + ' SKT geçmis%');
+    LblOzet.Text = TRSonucA;
+  except
+    LblOzet.Text = 'Özet yüklenemedi';
+  }
+}
+
+void FbUrunlerGeldiA;
+{
+  OzetHesapla(RestA.Response);
+
+  RestA.Free;
+  RestA = Nil;
+}
+
+void FbSayacGeldiA;
+{
+  if (RestA.Response == 'null')
+  {
+    SayacA = 0;
+  }
+  else
+  {
+    SayacA = StrToInt(RestA.Response);
+  }
+
+  RestA.Free;
+  RestA = Nil;
+
+  if (SayacA > 0)
+  {
+    RestA = TclRest.Create;
+    RestA.Accept = 'application/json';
+    RestA.ContentType = 'application/json';
+    RestA.ConnectTimeOut = 60000;
+    RestA.BaseURL = FB_URL_A + 'TBLPRODUCTS.json';
+    RestA.Method = rmGet;
+    RestA.OnCompleted = 'FbUrunlerGeldiA';
+    RestA.ExecuteAsync;
+  }
+  else
+  {
+    TRA('0 ürün  |  0 kritik  |  0 SKT geçmis%');
+    LblOzet.Text = TRSonucA;
+  }
+}
+
+void OzetiYenile;
+{
+  try
+    RestA = TclRest.Create;
+    RestA.Accept = 'application/json';
+    RestA.ContentType = 'application/json';
+    RestA.ConnectTimeOut = 60000;
+    RestA.BaseURL = FB_URL_A + 'SAYAC.json';
+    RestA.Method = rmGet;
+    RestA.OnCompleted = 'FbSayacGeldiA';
+    RestA.ExecuteAsync;
+  except
+    LblOzet.Text = 'Özet yüklenemedi';
+  }
+}
+
+void AcAnaSayfa;
+{
+  FB_URL_A = 'https://replate-c29bb-default-rtdb.europe-west1.firebasedatabase.app/';
+
+  AnaForm = TclForm.Create(Self);
+  AnaForm.SetFormColor('#111827', '', clGNone);
+  AnaForm.BtnGoBack.Visible = False;
+  AnaForm.BtnFormMenu.Visible = False;
+
+  LblCikis = AnaForm.AddNewProLabel(AnaForm, 'LblCikis', '');
+  LblCikis.Visible = False;
+
+  // ==========================================
+  // PROFİL İKONU EKLENTİSİ BURADA (HATA GİDERİLDİ)
+  // ==========================================
+  PnlUst = AnaForm.AddNewProPanel(AnaForm, 'PnlUst');
+  PnlUst.Align = alTop; 
+  PnlUst.Height = 70; 
+  PnlUst.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#111827'); // Form arka planı ile aynı
+  PnlUst.clProSettings.BorderColor = clAlphaColor.clHexToColor('#111827'); // Form arka planı ile aynı
+  PnlUst.clProSettings.BorderWidth = 0;
+  PnlUst.SetclProSettings(PnlUst.clProSettings);
+
+  ImgProfil = AnaForm.AddNewImage(PnlUst, 'ImgProfil');
+  ImgProfil.Align = alRight; 
+  ImgProfil.Width = 55; 
+  ImgProfil.Margins.Top = 15; 
+  ImgProfil.Margins.Right = 25;
+  AnaForm.SetImage(ImgProfil, 'user_3'); 
+  
+  AnaForm.AddNewEvent(ImgProfil, tbeOnClick, 'ProfilTiklandi');
+
+  // ==========================================
+
+  LblLogo = AnaForm.AddNewProLabel(AnaForm, 'LblLogo', 'RePlate');
+  LblLogo.Align = alTop; LblLogo.Height = 60; LblLogo.Margins.Top = 20; 
+  LblLogo.clProSettings.FontSize = 32;
+  LblLogo.clProSettings.FontColor = clAlphaColor.clHexToColor('#7C7CF0');
+  LblLogo.clProSettings.FontHorzAlign = palCenter;
+  LblLogo.clProSettings.TextSettings.Font.Style = [fsBold];
+  LblLogo.SetclProSettings(LblLogo.clProSettings);
+
+  TRA('Tarihi yaklas%an ürünler i%srafa deg%i%l, deg%ere dönüs%sün');
+  LblSlogan = AnaForm.AddNewProLabel(AnaForm, 'LblSlogan', TRSonucA);
+  LblSlogan.Align = alTop; LblSlogan.Height = 40; LblSlogan.Margins.Top = 5; LblSlogan.Margins.Left = 20; LblSlogan.Margins.Right = 20;
+  LblSlogan.clProSettings.FontSize = 13;
+  LblSlogan.clProSettings.FontColor = clAlphaColor.clHexToColor('#9CA3AF');
+  LblSlogan.clProSettings.FontHorzAlign = palCenter;
+  LblSlogan.SetclProSettings(LblSlogan.clProSettings);
+
+  LblKullanici = AnaForm.AddNewProLabel(AnaForm, 'LblKullanici', '');
+  LblKullanici.Align = alTop; LblKullanici.Height = 22; LblKullanici.Margins.Top = 8;
+  LblKullanici.clProSettings.FontSize = 13;
+  LblKullanici.clProSettings.FontColor = clAlphaColor.clHexToColor('#7C7CF0');
+  LblKullanici.clProSettings.FontHorzAlign = palCenter;
+  LblKullanici.SetclProSettings(LblKullanici.clProSettings);
+
+  PnlOzet = AnaForm.AddNewProPanel(AnaForm, 'PnlOzet');
+  PnlOzet.Align = alTop; PnlOzet.Height = 60; PnlOzet.Margins.Top = 20; PnlOzet.Margins.Left = 30; PnlOzet.Margins.Right = 30;
+  PnlOzet.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#1F2937');
+  PnlOzet.clProSettings.BorderColor = clAlphaColor.clHexToColor('#374151');
+  PnlOzet.clProSettings.BorderWidth = 1;
+  PnlOzet.clProSettings.RoundHeight = 12; PnlOzet.clProSettings.RoundWidth = 12;
+  PnlOzet.SetclProSettings(PnlOzet.clProSettings);
+
+  LblOzet = AnaForm.AddNewProLabel(PnlOzet, 'LblOzet', '...');
+  LblOzet.Align = alClient;
+  LblOzet.clProSettings.FontSize = 14;
+  LblOzet.clProSettings.FontColor = clAlphaColor.clHexToColor('#F9FAFB');
+  LblOzet.clProSettings.FontHorzAlign = palCenter;
+  LblOzet.clProSettings.FontVertAlign = palCenter;
+  LblOzet.clProSettings.TextSettings.Font.Style = [fsBold];
+  LblOzet.SetclProSettings(LblOzet.clProSettings);
+
+  TRA('Ürün Li%stesi%');
+  BtnUrunler = AnaForm.AddNewProButton(AnaForm, 'BtnUrunler', TRSonucA);
+  BtnUrunler.Align = alTop; BtnUrunler.Height = 54; BtnUrunler.Margins.Top = 30; BtnUrunler.Margins.Left = 30; BtnUrunler.Margins.Right = 30;
+  BtnUrunler.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#5B5BE5');
+  BtnUrunler.clProSettings.FontColor = clAlphaColor.clWhite;
+  BtnUrunler.clProSettings.FontSize = 16;
+  BtnUrunler.clProSettings.RoundHeight = 12; BtnUrunler.clProSettings.RoundWidth = 12; BtnUrunler.clProSettings.BorderWidth = 0;
+  BtnUrunler.clProSettings.TextSettings.Font.Style = [fsBold];
+  BtnUrunler.SetclProSettings(BtnUrunler.clProSettings);
+
+  BtnYeniUrun = AnaForm.AddNewProButton(AnaForm, 'BtnYeniUrun', '+ Yeni Ürün Ekle');
+  BtnYeniUrun.Align = alTop; BtnYeniUrun.Height = 54; BtnYeniUrun.Margins.Top = 15; BtnYeniUrun.Margins.Left = 30; BtnYeniUrun.Margins.Right = 30;
+  BtnYeniUrun.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#1F2937');
+  BtnYeniUrun.clProSettings.FontColor = clAlphaColor.clHexToColor('#F9FAFB');
+  BtnYeniUrun.clProSettings.FontSize = 16;
+  BtnYeniUrun.clProSettings.BorderColor = clAlphaColor.clHexToColor('#5B5BE5');
+  BtnYeniUrun.clProSettings.BorderWidth = 1;
+  BtnYeniUrun.clProSettings.RoundHeight = 12; BtnYeniUrun.clProSettings.RoundWidth = 12;
+  BtnYeniUrun.clProSettings.TextSettings.Font.Style = [fsBold];
+  BtnYeniUrun.SetclProSettings(BtnYeniUrun.clProSettings);
+
+  TRA('I%lanlar');
+  BtnIlanlar = AnaForm.AddNewProButton(AnaForm, 'BtnIlanlar', TRSonucA);
+  BtnIlanlar.Align = alTop; BtnIlanlar.Height = 54; BtnIlanlar.Margins.Top = 15; BtnIlanlar.Margins.Left = 30; BtnIlanlar.Margins.Right = 30;
+  BtnIlanlar.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#1F2937');
+  BtnIlanlar.clProSettings.FontColor = clAlphaColor.clHexToColor('#F9FAFB');
+  BtnIlanlar.clProSettings.FontSize = 16;
+  BtnIlanlar.clProSettings.BorderColor = clAlphaColor.clHexToColor('#5B5BE5');
+  BtnIlanlar.clProSettings.BorderWidth = 1;
+  BtnIlanlar.clProSettings.RoundHeight = 12; BtnIlanlar.clProSettings.RoundWidth = 12;
+  BtnIlanlar.SetclProSettings(BtnIlanlar.clProSettings);
+
+  TRA('Siparis% Gec%mis%i'); 
+  BtnGecmis = AnaForm.AddNewProButton(AnaForm, 'BtnGecmis', TRSonucA);
+  BtnGecmis.Align = alTop; BtnGecmis.Height = 54; BtnGecmis.Margins.Top = 15; BtnGecmis.Margins.Left = 30; BtnGecmis.Margins.Right = 30;
+  BtnGecmis.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#1F2937');
+  BtnGecmis.clProSettings.FontColor = clAlphaColor.clHexToColor('#F9FAFB');
+  BtnGecmis.clProSettings.FontSize = 16;
+  BtnGecmis.clProSettings.BorderColor = clAlphaColor.clHexToColor('#5B5BE5');
+  BtnGecmis.clProSettings.BorderWidth = 1;
+  BtnGecmis.clProSettings.RoundHeight = 12; BtnGecmis.clProSettings.RoundWidth = 12;
+  BtnGecmis.clProSettings.TextSettings.Font.Style = [fsBold];
+  BtnGecmis.SetclProSettings(BtnGecmis.clProSettings);
+  
+  AnaForm.AddNewEvent(BtnGecmis, tbeOnClick, 'GecmisTiklandi');
+
+  TRA('RePlate v0.1  |  Atiker Yazi%li%m Staj Projesi 2026');
+  LblAltBilgi = AnaForm.AddNewProLabel(AnaForm, 'LblAltBilgi', TRSonucA);
+  LblAltBilgi.Align = alBottom; LblAltBilgi.Height = 30; LblAltBilgi.Margins.Bottom = 10;
+  LblAltBilgi.clProSettings.FontSize = 11;
+  LblAltBilgi.clProSettings.FontColor = clAlphaColor.clHexToColor('#6B7280');
+  LblAltBilgi.clProSettings.FontHorzAlign = palCenter;
+  LblAltBilgi.SetclProSettings(LblAltBilgi.clProSettings);
+
+  OzetiYenile;
+
+  AnaForm.Run;
+}

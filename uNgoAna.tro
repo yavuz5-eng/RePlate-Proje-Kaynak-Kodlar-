@@ -1,0 +1,191 @@
+uses uIlanlar;
+uses uNgoRezervasyon;
+uses uProfil; 
+uses uNgoGecmis; // YENİ: Geçmiş modülünü dahil ettik
+
+var
+  NgoAnaForm    : TclForm;
+  PnlUstN       : TclProPanel; // YENİ: Profil ikonunu tutacak üst panel
+  ImgProfilN    : TclImage;    // YENİ: Profil ikonu
+  PnlNgoAna     : TclProPanel;
+  LblLogoN      : TclProLabel;
+  LblSloganN    : TclProLabel;
+  LblKullaniciN : TclProLabel;
+  BtnAktifIlan  : TclProButton;
+  BtnRezerve    : TclProButton;
+  BtnGecmisN    : TclProButton; // YENİ: Geçmiş butonu tanımlandı
+  LblCikisN     : TclProLabel; 
+  TRSonucN      : String;
+  
+  G_NgoAdA      : String; 
+
+void TRDegistirN(AKod : String; AHarf : String);
+{
+  while (Pos(AKod, TRSonucN) > 0)
+  {
+    TRSonucN = Copy(TRSonucN, 1, Pos(AKod, TRSonucN) - 1) + AHarf + Copy(TRSonucN, Pos(AKod, TRSonucN) + 2, 100000);
+  }
+}
+
+void TRN(AMetin : String);
+{
+  TRSonucN = AMetin;
+  TRDegistirN('c%', Chr(231));
+  TRDegistirN('C%', Chr(199));
+  TRDegistirN('g%', Chr(287));
+  TRDegistirN('G%', Chr(286));
+  TRDegistirN('s%', Chr(351));
+  TRDegistirN('S%', Chr(350));
+  TRDegistirN('i%', Chr(305));
+  TRDegistirN('I%', Chr(304));
+  TRDegistirN('u%', Chr(252)); // u harfi eklendi
+  TRDegistirN('U%', Chr(220)); // U harfi eklendi
+  TRDegistirN('o%', Chr(246)); // o harfi eklendi
+  TRDegistirN('O%', Chr(214)); // Ö harfi eklendi
+}
+
+void CikisTiklandi;
+{
+  try
+    // Açık olan formları kapat (uProfil arka planda açık kalabilir onu da kapatıyoruz)
+    if (uProfil.ProfilForm <> nil)
+      uProfil.ProfilForm.Close;
+      
+    // uNgoAna'yı kapat, böylece arka planda bekleyen uGiris formuna geri düşülür
+    NgoAnaForm.Close; 
+
+  except
+    ShowMessage('Çıkış işlemi sırasında bir hata oluştu. Lütfen tekrar deneyin.');
+  }
+}
+
+void ProfilTiklandiNgo;
+{
+  uProfil.P_AktifAd = G_NgoAdA; 
+  uProfil.P_AktifRol = 'stk'; 
+  
+  uProfil.AcProfilFormu;
+  
+  // Çıkış butonuna, uGiris formunda global tanımlanmış 'CikisTiklandi' fonksiyonunu bağlıyoruz!
+  uProfil.BtnCikis.OnClick = 'CikisTiklandi'; 
+}
+
+void AktifIlanlarTiklandi;
+{
+  uIlanlar.AcIlanlarFormu;
+}
+
+void RezervasyonTiklandi;
+{
+  uNgoRezervasyon.AcNgoRezervasyonFormu;
+}
+
+// YENİ: Sipariş Geçmişi Butonuna Tıklanınca Çalışacak Fonksiyon
+void GecmisTiklandiNgo;
+{
+  uNgoGecmis.G_AktifAd = G_NgoAdA; // STK adını geçmiş formuna aktar
+  uNgoGecmis.AcNgoGecmisFormu;
+}
+
+void AcNgoAnaSayfa;
+{
+  NgoAnaForm = TclForm.Create(Self);
+  NgoAnaForm.SetFormColor('#0F172A', '', clGNone);
+  NgoAnaForm.BtnGoBack.Visible = False;
+  NgoAnaForm.BtnFormMenu.Visible = False;
+
+  LblCikisN = NgoAnaForm.AddNewProLabel(NgoAnaForm, 'LblCikisN', '');
+  LblCikisN.Visible = False;
+
+  // ==========================================
+  // PROFİL İKONU EKLENTİSİ BURADA 
+  // ==========================================
+  PnlUstN = NgoAnaForm.AddNewProPanel(NgoAnaForm, 'PnlUstN');
+  PnlUstN.Align = alTop; 
+  PnlUstN.Height = 70; 
+  PnlUstN.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#0F172A'); 
+  PnlUstN.clProSettings.BorderColor = clAlphaColor.clHexToColor('#0F172A'); 
+  PnlUstN.clProSettings.BorderWidth = 0;
+  PnlUstN.SetclProSettings(PnlUstN.clProSettings);
+
+  ImgProfilN = NgoAnaForm.AddNewImage(PnlUstN, 'ImgProfilN');
+  ImgProfilN.Align = alRight; 
+  ImgProfilN.Width = 55; 
+  ImgProfilN.Margins.Top = 15; 
+  ImgProfilN.Margins.Right = 25;
+  NgoAnaForm.SetImage(ImgProfilN, 'user_3'); 
+  
+  NgoAnaForm.AddNewEvent(ImgProfilN, tbeOnClick, 'ProfilTiklandiNgo');
+  // ==========================================
+
+  PnlNgoAna = NgoAnaForm.AddNewProPanel(NgoAnaForm, 'PnlNgoAna');
+  PnlNgoAna.Align = alCenter;
+  PnlNgoAna.Width = 320;
+  PnlNgoAna.Height = 450;
+  PnlNgoAna.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#0F172A');
+  PnlNgoAna.clProSettings.BorderColor = clAlphaColor.clHexToColor('#0F172A');
+  PnlNgoAna.SetclProSettings(PnlNgoAna.clProSettings);
+
+  LblLogoN = NgoAnaForm.AddNewProLabel(PnlNgoAna, 'LblLogoN', 'RePlate');
+  LblLogoN.Align = alTop; LblLogoN.Height = 40; LblLogoN.Margins.Top = 10;
+  LblLogoN.clProSettings.FontSize = 28;
+  LblLogoN.clProSettings.FontColor = clAlphaColor.clHexToColor('#5B5BE5');
+  LblLogoN.clProSettings.FontHorzAlign = palCenter;
+  LblLogoN.clProSettings.TextSettings.Font.Style = [fsBold];
+  LblLogoN.SetclProSettings(LblLogoN.clProSettings);
+
+  TRN('Tarihi yaklas%an ürünler israfa deg%il, deg%ere dönüs%sün');
+  LblSloganN = NgoAnaForm.AddNewProLabel(PnlNgoAna, 'LblSloganN', TRSonucN);
+  LblSloganN.Align = alTop; LblSloganN.Height = 40; LblSloganN.Margins.Top = 15;
+  LblSloganN.clProSettings.FontSize = 11;
+  LblSloganN.clProSettings.FontColor = clAlphaColor.clHexToColor('#94A3B8');
+  LblSloganN.clProSettings.FontHorzAlign = palCenter;
+  LblSloganN.SetclProSettings(LblSloganN.clProSettings);
+
+  LblKullaniciN = NgoAnaForm.AddNewProLabel(PnlNgoAna, 'LblKullaniciN', '');
+  LblKullaniciN.Align = alTop; LblKullaniciN.Height = 25; LblKullaniciN.Margins.Top = 15;
+  LblKullaniciN.clProSettings.FontSize = 12;
+  LblKullaniciN.clProSettings.FontColor = clAlphaColor.clHexToColor('#5B5BE5');
+  LblKullaniciN.clProSettings.FontHorzAlign = palCenter;
+  LblKullaniciN.SetclProSettings(LblKullaniciN.clProSettings);
+
+  TRN('Aktif I%lanlar');
+  BtnAktifIlan = NgoAnaForm.AddNewProButton(PnlNgoAna, 'BtnAktifIlan', TRSonucN);
+  BtnAktifIlan.Align = alTop; BtnAktifIlan.Height = 50; BtnAktifIlan.Margins.Top = 30; BtnAktifIlan.Margins.Left = 10; BtnAktifIlan.Margins.Right = 10;
+  BtnAktifIlan.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#5B5BE5');
+  BtnAktifIlan.clProSettings.FontColor = clAlphaColor.clWhite;
+  BtnAktifIlan.clProSettings.RoundHeight = 12; BtnAktifIlan.clProSettings.RoundWidth = 12;
+  BtnAktifIlan.clProSettings.BorderWidth = 0;
+  BtnAktifIlan.clProSettings.TextSettings.Font.Style = [fsBold];
+  BtnAktifIlan.SetclProSettings(BtnAktifIlan.clProSettings);
+
+  TRN('Rezervasyonlari%m');
+  BtnRezerve = NgoAnaForm.AddNewProButton(PnlNgoAna, 'BtnRezerve', TRSonucN);
+  BtnRezerve.Align = alTop; BtnRezerve.Height = 50; BtnRezerve.Margins.Top = 15; BtnRezerve.Margins.Left = 10; BtnRezerve.Margins.Right = 10;
+  BtnRezerve.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#1E293B');
+  BtnRezerve.clProSettings.FontColor = clAlphaColor.clWhite;
+  BtnRezerve.clProSettings.RoundHeight = 12; BtnRezerve.clProSettings.RoundWidth = 12;
+  BtnRezerve.clProSettings.BorderColor = clAlphaColor.clHexToColor('#334155');
+  BtnRezerve.clProSettings.BorderWidth = 1;
+  BtnRezerve.clProSettings.TextSettings.Font.Style = [fsBold];
+  BtnRezerve.SetclProSettings(BtnRezerve.clProSettings);
+
+  // --- YENİ EKLENEN SİPARİŞ GEÇMİŞİ BUTONU ---
+  TRN('Siparis% Gec%mis%i');
+  BtnGecmisN = NgoAnaForm.AddNewProButton(PnlNgoAna, 'BtnGecmisN', TRSonucN);
+  BtnGecmisN.Align = alTop; BtnGecmisN.Height = 50; BtnGecmisN.Margins.Top = 15; BtnGecmisN.Margins.Left = 10; BtnGecmisN.Margins.Right = 10;
+  BtnGecmisN.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#1E293B');
+  BtnGecmisN.clProSettings.FontColor = clAlphaColor.clWhite;
+  BtnGecmisN.clProSettings.RoundHeight = 12; BtnGecmisN.clProSettings.RoundWidth = 12;
+  BtnGecmisN.clProSettings.BorderColor = clAlphaColor.clHexToColor('#334155');
+  BtnGecmisN.clProSettings.BorderWidth = 1;
+  BtnGecmisN.clProSettings.TextSettings.Font.Style = [fsBold];
+  BtnGecmisN.SetclProSettings(BtnGecmisN.clProSettings);
+  // ---------------------------------------------
+
+  NgoAnaForm.AddNewEvent(BtnAktifIlan, tbeOnClick, 'AktifIlanlarTiklandi');
+  NgoAnaForm.AddNewEvent(BtnRezerve, tbeOnClick, 'RezervasyonTiklandi');
+  NgoAnaForm.AddNewEvent(BtnGecmisN, tbeOnClick, 'GecmisTiklandiNgo'); // Yeni butona tıklama olayı
+
+  NgoAnaForm.Run;
+}

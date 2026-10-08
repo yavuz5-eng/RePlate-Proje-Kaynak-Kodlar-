@@ -1,0 +1,118 @@
+uses uProfilGuncelle; 
+
+var
+  ProfilForm   : TclForm;
+  PnlKullanici : TclProPanel;
+  LblBaslik    : TclProLabel;
+  LblAd        : TclProLabel;
+  LblRol       : TclProLabel;
+  BtnGuncelle  : TclProButton; 
+  BtnCikis     : TclProButton;
+  TRSonucP     : String;
+  
+  P_AktifAd    : String;
+  P_AktifRol   : String;
+
+void TRDegistirP(AKod : String; AHarf : String);
+{
+  while (Pos(AKod, TRSonucP) > 0)
+  {
+    TRSonucP = Copy(TRSonucP, 1, Pos(AKod, TRSonucP) - 1) + AHarf + Copy(TRSonucP, Pos(AKod, TRSonucP) + 2, 100000);
+  }
+}
+
+void TRP(AMetin : String);
+{
+  TRSonucP = AMetin;
+  TRDegistirP('c%', Chr(231));
+  TRDegistirP('C%', Chr(199));
+  TRDegistirP('g%', Chr(287));
+  TRDegistirP('G%', Chr(286));
+  TRDegistirP('s%', Chr(351));
+  TRDegistirP('S%', Chr(350));
+  TRDegistirP('i%', Chr(305));
+  TRDegistirP('I%', Chr(304));
+  TRDegistirP('u%', Chr(252));
+  TRDegistirP('U%', Chr(220));
+  TRDegistirP('o%', Chr(246));
+  TRDegistirP('O%', Chr(214));
+}
+
+void GuncelleTiklandi;
+{
+  uProfilGuncelle.PG_AktifAd = P_AktifAd;
+  uProfilGuncelle.AcProfilGuncelleFormu;
+}
+
+void AcProfilFormu;
+{
+  ProfilForm = TclForm.Create(Self);
+  ProfilForm.SetFormColor('#111827', '', clGNone);
+  ProfilForm.BtnGoBack.Visible = True;
+  ProfilForm.BtnFormMenu.Visible = False;
+
+  TRP('Profilim');
+  LblBaslik = ProfilForm.AddNewProLabel(ProfilForm, 'LblBaslik', TRSonucP);
+  LblBaslik.Align = alTop; LblBaslik.Height = 50; LblBaslik.Margins.Top = 15;
+  LblBaslik.clProSettings.FontSize = 20;
+  LblBaslik.clProSettings.FontColor = clAlphaColor.clHexToColor('#F9FAFB');
+  LblBaslik.clProSettings.FontHorzAlign = palCenter;
+  LblBaslik.clProSettings.TextSettings.Font.Style = [fsBold];
+  LblBaslik.SetclProSettings(LblBaslik.clProSettings);
+
+  PnlKullanici = ProfilForm.AddNewProPanel(ProfilForm, 'PnlKullanici');
+  PnlKullanici.Align = alTop; PnlKullanici.Height = 120; PnlKullanici.Margins.Top = 20; PnlKullanici.Margins.Left = 20; PnlKullanici.Margins.Right = 20;
+  PnlKullanici.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#1F2937');
+  PnlKullanici.clProSettings.BorderColor = clAlphaColor.clHexToColor('#374151');
+  PnlKullanici.clProSettings.BorderWidth = 1;
+  PnlKullanici.clProSettings.RoundHeight = 12; PnlKullanici.clProSettings.RoundWidth = 12;
+  PnlKullanici.SetclProSettings(PnlKullanici.clProSettings);
+
+  LblAd = ProfilForm.AddNewProLabel(PnlKullanici, 'LblAd', P_AktifAd);
+  LblAd.Align = alTop; LblAd.Height = 30; LblAd.Margins.Top = 30;
+  LblAd.clProSettings.FontSize = 18;
+  LblAd.clProSettings.FontColor = clAlphaColor.clHexToColor('#10B981'); 
+  LblAd.clProSettings.FontHorzAlign = palCenter;
+  LblAd.clProSettings.TextSettings.Font.Style = [fsBold];
+  LblAd.SetclProSettings(LblAd.clProSettings);
+
+  if (P_AktifRol == 'market') 
+  { 
+    TRP('Market Hesabi%'); 
+  } 
+  else 
+  { 
+    TRP('STK Hesabi%'); 
+  }
+  
+  LblRol = ProfilForm.AddNewProLabel(PnlKullanici, 'LblRol', TRSonucP);
+  LblRol.Align = alTop; LblRol.Height = 20; LblRol.Margins.Top = 5;
+  LblRol.clProSettings.FontSize = 13;
+  LblRol.clProSettings.FontColor = clAlphaColor.clHexToColor('#9CA3AF');
+  LblRol.clProSettings.FontHorzAlign = palCenter;
+  LblRol.SetclProSettings(LblRol.clProSettings);
+
+  TRP('Çi%ki%s% Yap');
+  BtnCikis = ProfilForm.AddNewProButton(ProfilForm, 'BtnCikis', TRSonucP);
+  BtnCikis.Align = alBottom; BtnCikis.Height = 50; BtnCikis.Margins.Bottom = 40; BtnCikis.Margins.Left = 30; BtnCikis.Margins.Right = 30;
+  BtnCikis.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#EF4444'); 
+  BtnCikis.clProSettings.FontColor = clAlphaColor.clWhite;
+  BtnCikis.clProSettings.FontSize = 16;
+  BtnCikis.clProSettings.RoundHeight = 12; BtnCikis.clProSettings.RoundWidth = 12; BtnCikis.clProSettings.BorderWidth = 0;
+  BtnCikis.clProSettings.TextSettings.Font.Style = [fsBold];
+  BtnCikis.SetclProSettings(BtnCikis.clProSettings);
+  
+  TRP('Bi%lgi%leri% Güncelle');
+  BtnGuncelle = ProfilForm.AddNewProButton(ProfilForm, 'BtnGuncelle', TRSonucP);
+  BtnGuncelle.Align = alBottom; BtnGuncelle.Height = 50; BtnGuncelle.Margins.Bottom = 15; BtnGuncelle.Margins.Left = 30; BtnGuncelle.Margins.Right = 30;
+  BtnGuncelle.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#5B5BE5'); 
+  BtnGuncelle.clProSettings.FontColor = clAlphaColor.clWhite;
+  BtnGuncelle.clProSettings.FontSize = 16;
+  BtnGuncelle.clProSettings.RoundHeight = 12; BtnGuncelle.clProSettings.RoundWidth = 12; BtnGuncelle.clProSettings.BorderWidth = 0;
+  BtnGuncelle.clProSettings.TextSettings.Font.Style = [fsBold];
+  BtnGuncelle.SetclProSettings(BtnGuncelle.clProSettings);
+
+  ProfilForm.AddNewEvent(BtnGuncelle, tbeOnClick, 'GuncelleTiklandi');
+  
+  ProfilForm.Run;
+}

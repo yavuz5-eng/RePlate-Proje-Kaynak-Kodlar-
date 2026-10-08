@@ -1,0 +1,482 @@
+uses uNgoReserveEt;
+
+var
+  IlanForm         : TclForm;
+  LblBaslikI       : TclProLabel;
+  PnlFiltreWrapper : TclProPanel; 
+  CmbFiltre        : TclComboBox; 
+  ScrollIlan       : TclVertScrollBox;
+  YenilemeNoI      : Integer;
+  TRSonucI         : String;
+  RestI            : TclRest;
+  FB_URL_I         : String;
+  SayacI           : Integer;
+  
+  // Rezervasyon İslemleri İcin
+  IDListeIlan      : String;
+  RezerveIndeks    : Integer;
+  
+  // Giris ekranindan aktarilacak veriler ve Filtre
+  G_AktifRol          : String;
+  G_AktifAd           : String;
+  G_AktifKullaniciAdi : String;   // YENİ: benzersiz STK kimligi (e-posta)
+  G_SeciliKategori    : String; 
+
+  // Arama Çubuğu Değişkenleri
+  PnlAramaWrapper  : TclProPanel;
+  EdtArama         : TclEdit;
+  BtnAra           : TclProButton;
+  BtnYenile        : TclProButton;
+  G_AramaMetni     : String;
+
+  // Acil İlanlar
+  G_AcilGoster     : Boolean;
+  BtnAcil          : TclProButton;
+
+// --- TR KARAKTER DONUSUMU ---
+
+void TRDegistirI(AKod : String; AHarf : String);
+{
+  while (Pos(AKod, TRSonucI) > 0)
+  {
+    TRSonucI = Copy(TRSonucI, 1, Pos(AKod, TRSonucI) - 1) + AHarf + Copy(TRSonucI, Pos(AKod, TRSonucI) + 2, 100000);
+  }
+}
+
+void TRI(AMetin : String);
+{
+  TRSonucI = AMetin;
+  TRDegistirI('c%', Chr(231));
+  TRDegistirI('C%', Chr(199));
+  TRDegistirI('g%', Chr(287));
+  TRDegistirI('G%', Chr(286));
+  TRDegistirI('s%', Chr(351));
+  TRDegistirI('S%', Chr(350));
+  TRDegistirI('i%', Chr(305));
+  TRDegistirI('I%', Chr(304));
+}
+
+void IlanlariYenile; forward; 
+
+void AcilDurumDegistir;
+{
+  G_AcilGoster = not G_AcilGoster;
+  if (G_AcilGoster) 
+  { 
+    BtnAcil.Text = 'Tumu Goster'; 
+    BtnAcil.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#F59E0B'); 
+  }
+  else 
+  { 
+    BtnAcil.Text = 'Acil Ilanlari Goster'; 
+    BtnAcil.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#EF4444'); 
+  }
+  BtnAcil.SetclProSettings(BtnAcil.clProSettings);
+  IlanlariYenile;
+}
+
+void AramaTetikle;
+{
+  G_AramaMetni = EdtArama.Text;
+  IlanlariYenile;
+}
+
+void FiltreDegisti;
+{
+  G_SeciliKategori = CmbFiltre.Text;
+  IlanlariYenile;
+}
+
+// Rezervasyon Butonuna Tıklanınca Yeni Sayfayı Açar (uNgoReserveEt)
+void SecileniRezerveEt;
+var
+  Kalan : String;
+  j : Integer;
+{
+  try
+    Kalan = IDListeIlan;
+    if (RezerveIndeks > 0)
+    {
+      for j = 1 to RezerveIndeks
+      {
+        Kalan = Copy(Kalan, Pos(';', Kalan) + 1, 100000);
+      }
+    }
+    
+    // Verileri yeni forma aktar
+    uNgoReserveEt.G_HedefID = Copy(Kalan, 1, Pos(';', Kalan) - 1);
+    uNgoReserveEt.G_AktifAd = G_AktifAd;
+    uNgoReserveEt.G_AktifKullaniciAdi = G_AktifKullaniciAdi;   // YENİ
+    
+    // Yeni onay sayfasını tetikle
+    uNgoReserveEt.AcReserveFormu;
+    
+  except
+    ShowMessage('Hata: ' + LastExceptionMessage);
+  }
+}
+
+void RezKart0; { RezerveIndeks = 0; SecileniRezerveEt; }
+void RezKart1; { RezerveIndeks = 1; SecileniRezerveEt; }
+void RezKart2; { RezerveIndeks = 2; SecileniRezerveEt; }
+void RezKart3; { RezerveIndeks = 3; SecileniRezerveEt; }
+void RezKart4; { RezerveIndeks = 4; SecileniRezerveEt; }
+void RezKart5; { RezerveIndeks = 5; SecileniRezerveEt; }
+void RezKart6; { RezerveIndeks = 6; SecileniRezerveEt; }
+void RezKart7; { RezerveIndeks = 7; SecileniRezerveEt; }
+void RezKart8; { RezerveIndeks = 8; SecileniRezerveEt; }
+void RezKart9; { RezerveIndeks = 9; SecileniRezerveEt; }
+
+// --- CİZİM AKİSİ ---
+
+void IlanKartlariCiz(AJson : String);
+var
+  Kart : TclProPanel;
+  LblAd : TclProLabel;
+  LblFiyat : TclProLabel;
+  LblAlt : TclProLabel;
+  LblRezerve : TclProLabel;
+  LblKategori : TclProLabel; 
+  k : Integer;
+  GorunenNo : Integer;
+  KalanGun : Integer;
+  RenkKodu : String;
+  SktStr : String;
+  IlanAd : String;
+  Durum : String;
+  SktMetni : String;
+  TamAltMetin : String;
+  KatStr : String;
+{
+  try
+    GorunenNo = 0;
+    IDListeIlan = '';
+
+    for k = 2001 to SayacI
+    {
+      if (Pos('"' + IntToStr(k) + '"', AJson) > 0)
+      {
+        IlanAd = Clomosy.CLParseJSON(AJson, IntToStr(k) + '.urunAd');
+        SktStr = Clomosy.CLParseJSON(AJson, IntToStr(k) + '.skt');
+        Durum = Clomosy.CLParseJSON(AJson, IntToStr(k) + '.durum');
+        KatStr = Clomosy.CLParseJSON(AJson, IntToStr(k) + '.kategori');
+
+        if (KatStr == '') { KatStr = 'Genel'; } 
+
+        if ((IlanAd <> '') && (SktStr <> '') && (Durum == 'aktif'))
+        {
+          if ((G_SeciliKategori == 'Tumu') || (G_SeciliKategori == KatStr))
+          {
+            if ((G_AramaMetni == '') || (Pos(LowerCase(G_AramaMetni), LowerCase(IlanAd)) > 0))
+            {
+              KalanGun = Trunc(EncodeDate(StrToInt(Copy(SktStr, 1, 4)), StrToInt(Copy(SktStr, 6, 2)), StrToInt(Copy(SktStr, 9, 2))) - Date);
+
+              if ((G_AcilGoster) && (KalanGun > 3))
+              {
+                // Acil filtresi açıkken SKT'si 3 günden fazla kalanları atla
+              }
+              else
+              {
+                if (KalanGun < 0)
+                {
+                  RenkKodu = '#991B1B';
+                  TRI('SKT GEC%TI%!');
+                  SktMetni = TRSonucI;
+                }
+                else
+                {
+                  if (KalanGun < 3)
+                  {
+                    RenkKodu = '#EF4444';
+                    SktMetni = 'SKT: ' + IntToStr(KalanGun) + ' gün';
+                  }
+                  else
+                  {
+                    if (KalanGun <= 7)
+                    {
+                      RenkKodu = '#F59E0B';
+                      SktMetni = 'SKT: ' + IntToStr(KalanGun) + ' gün';
+                    }
+                    else
+                    {
+                      RenkKodu = '#10B981';
+                      SktMetni = 'SKT: ' + IntToStr(KalanGun) + ' gün';
+                    }
+                  }
+                }
+
+                Kart = IlanForm.AddNewProPanel(ScrollIlan, 'IKart_' + IntToStr(YenilemeNoI) + '_' + IntToStr(GorunenNo));
+                Kart.Align = alTop; Kart.Height = 115; Kart.Margins.Top = 10; 
+                Kart.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#1F2937');
+                Kart.clProSettings.BorderColor = clAlphaColor.clHexToColor(RenkKodu);
+                Kart.clProSettings.BorderWidth = 2;
+                Kart.clProSettings.RoundHeight = 10; Kart.clProSettings.RoundWidth = 10;
+                Kart.SetclProSettings(Kart.clProSettings);
+
+                // 1. REZERVE BUTONU 
+                if ((GorunenNo < 10) && (G_AktifRol <> 'market'))
+                {
+                  TRI('REZERVE ET');
+                  LblRezerve = IlanForm.AddNewProLabel(Kart, 'LblRez_' + IntToStr(YenilemeNoI) + '_' + IntToStr(GorunenNo), TRSonucI);
+                  LblRezerve.Align = alTop;
+                  LblRezerve.Height = 30; 
+                  LblRezerve.Margins.Top = 15; 
+                  LblRezerve.Margins.Right = 10;
+                  LblRezerve.clProSettings.FontHorzAlign = palTrailing; 
+                  LblRezerve.clProSettings.FontSize = 13;
+                  LblRezerve.clProSettings.FontColor = clAlphaColor.clHexToColor('#5B5BE5');
+                  LblRezerve.clProSettings.TextSettings.Font.Style = [fsBold];
+                  LblRezerve.SetclProSettings(LblRezerve.clProSettings);
+                  IlanForm.AddNewEvent(LblRezerve, tbeOnClick, 'RezKart' + IntToStr(GorunenNo));
+                }
+
+                // 2. KATEGORİ 
+                TRI(KatStr);
+                LblKategori = IlanForm.AddNewProLabel(Kart, 'LblKat_' + IntToStr(YenilemeNoI) + '_' + IntToStr(GorunenNo), TRSonucI);
+                LblKategori.Align = alBottom; 
+                LblKategori.Height = 20; 
+                LblKategori.Margins.Right = 15; 
+                LblKategori.Margins.Bottom = 5;
+                LblKategori.clProSettings.FontColor = clAlphaColor.clHexToColor('#9CA3AF');
+                LblKategori.clProSettings.FontHorzAlign = palTrailing;
+                LblKategori.clProSettings.FontSize = 11;
+                LblKategori.SetclProSettings(LblKategori.clProSettings);
+
+                // 3. ÜRÜN ADI 
+                LblAd = IlanForm.AddNewProLabel(Kart, 'ILblAd_' + IntToStr(YenilemeNoI) + '_' + IntToStr(GorunenNo), IlanAd);
+                LblAd.Align = alTop; LblAd.Height = 26; 
+                LblAd.Margins.Top = -25; 
+                LblAd.Margins.Left = 15; 
+                LblAd.Margins.Right = 100;
+                LblAd.clProSettings.FontSize = 15;
+                LblAd.clProSettings.FontColor = clAlphaColor.clHexToColor('#F9FAFB');
+                LblAd.clProSettings.TextSettings.Font.Style = [fsBold];
+                LblAd.SetclProSettings(LblAd.clProSettings);
+
+                // 4. FİYAT
+                LblFiyat = IlanForm.AddNewProLabel(Kart, 'ILblFyt_' + IntToStr(YenilemeNoI) + '_' + IntToStr(GorunenNo), 'Normal: ' + Clomosy.CLParseJSON(AJson, IntToStr(k) + '.normalFiyat') + ' TL -> ' + Clomosy.CLParseJSON(AJson, IntToStr(k) + '.indirimliFiyat') + ' TL');
+                LblFiyat.Align = alTop; LblFiyat.Height = 24; 
+                LblFiyat.Margins.Top = 2; 
+                LblFiyat.Margins.Left = 15; 
+                LblFiyat.Margins.Right = 100;
+                LblFiyat.clProSettings.FontSize = 13;
+                LblFiyat.clProSettings.FontColor = clAlphaColor.clHexToColor('#34D399');
+                LblFiyat.clProSettings.TextSettings.Font.Style = [fsBold];
+                LblFiyat.SetclProSettings(LblFiyat.clProSettings);
+
+                // 5. DETAYLAR
+                TamAltMetin = Clomosy.CLParseJSON(AJson, IntToStr(k) + '.adet') + ' adet | ' + 
+                              SktMetni + ' | ' + 
+                              Clomosy.CLParseJSON(AJson, IntToStr(k) + '.marketAd');
+
+                LblAlt = IlanForm.AddNewProLabel(Kart, 'ILblAlt_' + IntToStr(YenilemeNoI) + '_' + IntToStr(GorunenNo), TamAltMetin);
+                LblAlt.Align = alTop; LblAlt.Height = 22; 
+                LblAlt.Margins.Top = 2; 
+                LblAlt.Margins.Left = 15; 
+                LblAlt.Margins.Right = 100;
+                LblAlt.clProSettings.FontSize = 11;
+                LblAlt.clProSettings.FontColor = clAlphaColor.clHexToColor('#9CA3AF');
+                LblAlt.SetclProSettings(LblAlt.clProSettings);
+
+                IDListeIlan = IDListeIlan + IntToStr(k) + ';';
+                GorunenNo = GorunenNo + 1;
+              }
+            }
+          }
+        }
+      }
+    }
+  except
+    ShowMessage('Ilan cizim hatasi: ' + LastExceptionMessage);
+  }
+}
+
+void FbIlanlarGeldi;
+{
+  IlanKartlariCiz(RestI.Response);
+
+  RestI.Free;
+  RestI = Nil;
+}
+
+void FbSayacIlanGeldi;
+{
+  if (RestI.Response == 'null')
+  {
+    SayacI = 0;
+  }
+  else
+  {
+    SayacI = StrToInt(RestI.Response);
+  }
+
+  RestI.Free;
+  RestI = Nil;
+
+  if (SayacI > 0)
+  {
+    RestI = TclRest.Create;
+    RestI.Accept = 'application/json';
+    RestI.ContentType = 'application/json';
+    RestI.ConnectTimeOut = 60000;
+    RestI.BaseURL = FB_URL_I + 'TBLLISTINGS.json';
+    RestI.Method = rmGet;
+    RestI.OnCompleted = 'FbIlanlarGeldi';
+    RestI.ExecuteAsync;
+  }
+}
+
+void IlanlariYenile;
+{
+  if (IlanForm == nil)
+  {
+  }
+  else
+  {
+    try
+      if (ScrollIlan <> nil)
+      {
+        ScrollIlan.Free;
+      }
+      YenilemeNoI = YenilemeNoI + 1;
+
+      ScrollIlan = IlanForm.AddNewVertScrollBox(IlanForm, 'ScrollIlan_' + IntToStr(YenilemeNoI));
+      ScrollIlan.Align = alClient;
+      ScrollIlan.Margins.Top = 15;
+      ScrollIlan.Margins.Left = 20;
+      ScrollIlan.Margins.Right = 20;
+      ScrollIlan.Margins.Bottom = 20;
+
+      RestI = TclRest.Create;
+      RestI.Accept = 'application/json';
+      RestI.ContentType = 'application/json';
+      RestI.ConnectTimeOut = 60000;
+      RestI.BaseURL = FB_URL_I + 'SAYACILAN.json';
+      RestI.Method = rmGet;
+      RestI.OnCompleted = 'FbSayacIlanGeldi';
+      RestI.ExecuteAsync;
+    except
+      ShowMessage('Ilan Liste Hata: ' + LastExceptionMessage);
+    }
+  }
+}
+
+void AcIlanlarFormu;
+{
+  FB_URL_I = 'https://replate-c29bb-default-rtdb.europe-west1.firebasedatabase.app/';
+  G_SeciliKategori = 'Tumu'; 
+  G_AramaMetni = '';
+  G_AcilGoster = False;
+
+  IlanForm = TclForm.Create(Self);
+  ScrollIlan = Nil;
+  IlanForm.SetFormColor('#111827', '', clGNone);
+  IlanForm.BtnGoBack.Visible = True;
+  IlanForm.BtnFormMenu.Visible = False;
+
+  LblBaslikI = IlanForm.AddNewProLabel(IlanForm, 'LblBaslikI', 'Aktif Ilanlar');
+  LblBaslikI.Align = alTop; LblBaslikI.Height = 50; LblBaslikI.Margins.Top = 15;
+  LblBaslikI.clProSettings.FontSize = 20;
+  LblBaslikI.clProSettings.FontColor = clAlphaColor.clHexToColor('#F9FAFB');
+  LblBaslikI.clProSettings.FontHorzAlign = palCenter;
+  LblBaslikI.clProSettings.TextSettings.Font.Style = [fsBold];
+  LblBaslikI.SetclProSettings(LblBaslikI.clProSettings);
+
+  // ACİL İLANLAR BUTONU
+  BtnAcil = IlanForm.AddNewProButton(IlanForm, 'BtnAcil', 'Acil Ilanlari Goster');
+  BtnAcil.Align = alTop; BtnAcil.Height = 35; BtnAcil.Margins.Top = 8; BtnAcil.Margins.Left = 20; BtnAcil.Margins.Right = 20;
+  BtnAcil.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#EF4444');
+  BtnAcil.clProSettings.FontColor = clAlphaColor.clWhite;
+  BtnAcil.clProSettings.RoundHeight = 8; BtnAcil.clProSettings.RoundWidth = 8; BtnAcil.clProSettings.BorderWidth = 0;
+  BtnAcil.clProSettings.TextSettings.Font.Style = [fsBold];
+  BtnAcil.SetclProSettings(BtnAcil.clProSettings);
+  IlanForm.AddNewEvent(BtnAcil, tbeOnClick, 'AcilDurumDegistir');
+
+  // FİLTRELEME MENÜSÜ  
+  PnlFiltreWrapper = IlanForm.AddNewProPanel(IlanForm, 'PnlFiltreWrapper');
+  PnlFiltreWrapper.Align = alTop;
+  PnlFiltreWrapper.Height = 44;
+  PnlFiltreWrapper.Margins.Top = 8;
+  PnlFiltreWrapper.Margins.Left = 20;
+  PnlFiltreWrapper.Margins.Right = 20;
+  PnlFiltreWrapper.Margins.Bottom = 0;
+  PnlFiltreWrapper.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#E5E7EB');
+  PnlFiltreWrapper.clProSettings.BorderColor = clAlphaColor.clHexToColor('#4B5563');
+  PnlFiltreWrapper.clProSettings.BorderWidth = 1;
+  PnlFiltreWrapper.clProSettings.RoundHeight = 8;
+  PnlFiltreWrapper.clProSettings.RoundWidth = 8;
+  PnlFiltreWrapper.SetclProSettings(PnlFiltreWrapper.clProSettings);
+
+  CmbFiltre = IlanForm.AddNewComboBox(PnlFiltreWrapper, 'CmbFiltre');
+  CmbFiltre.Align = alClient;
+  CmbFiltre.Margins.Top = 2;
+  CmbFiltre.Margins.Left = 5;
+  CmbFiltre.Margins.Right = 5;
+  CmbFiltre.Margins.Bottom = 2;
+  CmbFiltre.AddItem('Tumu', '0');
+  CmbFiltre.AddItem('Meyve & Sebze', '1');
+  CmbFiltre.AddItem('Sut Urunleri', '2');
+  CmbFiltre.AddItem('Et & Tavuk', '3');
+  CmbFiltre.AddItem('Unlu Mamuller', '4');
+  CmbFiltre.AddItem('Genel', '5');
+  
+  IlanForm.AddNewEvent(CmbFiltre, tbeOnChange, 'FiltreDegisti');
+
+  // ARAMA ÇUBUĞU KAPSAYICISI
+  PnlAramaWrapper = IlanForm.AddNewProPanel(IlanForm, 'PnlAramaWrapper');
+  PnlAramaWrapper.Align = alTop;
+  PnlAramaWrapper.Height = 44;
+  PnlAramaWrapper.Margins.Top = 5;
+  PnlAramaWrapper.Margins.Left = 20;
+  PnlAramaWrapper.Margins.Right = 20;
+  PnlAramaWrapper.Margins.Bottom = 5; 
+  PnlAramaWrapper.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#E5E7EB');
+  PnlAramaWrapper.clProSettings.BorderColor = clAlphaColor.clHexToColor('#4B5563');
+  PnlAramaWrapper.clProSettings.BorderWidth = 1;
+  PnlAramaWrapper.clProSettings.RoundHeight = 8;
+  PnlAramaWrapper.clProSettings.RoundWidth = 8;
+  PnlAramaWrapper.SetclProSettings(PnlAramaWrapper.clProSettings);
+
+  EdtArama = IlanForm.AddNewEdit(PnlAramaWrapper, 'EdtArama', 'Ilanlarda kelime ara...');
+  EdtArama.Align = alClient;
+  EdtArama.Margins.Top = 2;
+  EdtArama.Margins.Left = 10;
+  EdtArama.Margins.Bottom = 2;
+  EdtArama.Margins.Right = 5;
+  
+  // YENİLE BUTONU
+  BtnYenile = IlanForm.AddNewProButton(PnlAramaWrapper, 'BtnYenile', 'YENİLE');
+  BtnYenile.Align = alRight;
+  BtnYenile.Width = 65;
+  BtnYenile.Margins.Top = 3;
+  BtnYenile.Margins.Right = 3;
+  BtnYenile.Margins.Bottom = 3;
+  BtnYenile.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#10B981'); 
+  BtnYenile.clProSettings.FontColor = clAlphaColor.clHexToColor('#FFFFFF');
+  BtnYenile.clProSettings.RoundHeight = 5;
+  BtnYenile.clProSettings.RoundWidth = 5;
+  BtnYenile.clProSettings.TextSettings.Font.Style = [fsBold];
+  BtnYenile.SetclProSettings(BtnYenile.clProSettings);
+  IlanForm.AddNewEvent(BtnYenile, tbeOnClick, 'IlanlariYenile');
+
+  // ARA BUTONU
+  BtnAra = IlanForm.AddNewProButton(PnlAramaWrapper, 'BtnAra', 'ARA');
+  BtnAra.Align = alRight;
+  BtnAra.Width = 65;
+  BtnAra.Margins.Top = 3;
+  BtnAra.Margins.Right = 3;
+  BtnAra.Margins.Bottom = 3;
+  BtnAra.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#3B82F6'); 
+  BtnAra.clProSettings.FontColor = clAlphaColor.clHexToColor('#FFFFFF');
+  BtnAra.clProSettings.RoundHeight = 5;
+  BtnAra.clProSettings.RoundWidth = 5;
+  BtnAra.clProSettings.TextSettings.Font.Style = [fsBold];
+  BtnAra.SetclProSettings(BtnAra.clProSettings);
+  IlanForm.AddNewEvent(BtnAra, tbeOnClick, 'AramaTetikle');
+
+  YenilemeNoI = 0;
+
+  IlanlariYenile;
+
+  IlanForm.Run;
+}

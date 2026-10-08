@@ -1,0 +1,526 @@
+var
+  MRezForm     : TclForm;
+  LblBaslikM   : TclProLabel;
+  ScrollMRez   : TclVertScrollBox;
+  YenilemeNoM  : Integer;
+  TRSonucM     : String;
+  RestM        : TclRest;
+  FB_URL_M     : String;
+  SayacM       : Integer;
+
+  // Giris ekranindan aktarilacak Market adi
+  G_AktifAd    : String;
+  
+  // Teslimat ve Reddetme Islemleri Icin
+  IDListeMRez  : String;
+  TeslimIndeks : Integer;
+  ReddetIndeks : Integer;
+  
+  // Reddetme Zinciri Icin
+  G_RedTargetID   : String;
+  G_RedAnaID      : String;
+  G_RedStkKey     : String;
+  G_RedAdet       : Integer;
+  G_RedTargetJson : String;
+
+void TRDegistirM(AKod : String; AHarf : String);
+{
+  while (Pos(AKod, TRSonucM) > 0)
+  {
+    TRSonucM = Copy(TRSonucM, 1, Pos(AKod, TRSonucM) - 1) + AHarf + Copy(TRSonucM, Pos(AKod, TRSonucM) + 2, 100000);
+  }
+}
+
+void TRM(AMetin : String);
+{
+  TRSonucM = AMetin;
+  TRDegistirM('c%', Chr(231));
+  TRDegistirM('C%', Chr(199));
+  TRDegistirM('g%', Chr(287));
+  TRDegistirM('G%', Chr(286));
+  TRDegistirM('s%', Chr(351));
+  TRDegistirM('S%', Chr(350));
+  TRDegistirM('i%', Chr(305));
+  TRDegistirM('I%', Chr(304));
+  TRDegistirM('u%', Chr(252));
+  TRDegistirM('U%', Chr(220));
+  TRDegistirM('o%', Chr(246));
+  TRDegistirM('O%', Chr(214));
+}
+
+void MarketRezervasyonlariYenile; forward;
+
+// --- TESLI%MAT AKIS%I ---
+
+void TeslimTamamlandi;
+{
+  if (RestM <> nil)
+  {
+    RestM.Free;
+    RestM = Nil;
+  }
+  
+  // YENİ: Başarı mesajı onay döngüsüne uygun hale getirildi
+  TRM('Tesli%mat onaya gönderi%ldi%. STK''ni%n tesli%m aldi%g%i%ni% onaylamasi% bekleni%yor.');
+  ShowMessage(TRSonucM);
+  
+  MarketRezervasyonlariYenile; 
+}
+
+void SecileniTeslimEt;
+var
+  Kalan : String;
+  HedefID : String;
+  j : Integer;
+  JBody : String;
+  Q : String;
+{
+  try
+    Kalan = IDListeMRez;
+    if (TeslimIndeks > 0)
+    {
+      for j = 1 to TeslimIndeks
+      {
+        Kalan = Copy(Kalan, Pos(';', Kalan) + 1, 100000);
+      }
+    }
+    HedefID = Copy(Kalan, 1, Pos(';', Kalan) - 1);
+
+    Q = Chr(34);
+    JBody = '{';
+    
+    // YENİ: Statü artık doğrudan 'tamamlandi' değil, 'onay_bekliyor' oluyor
+    JBody = JBody + Q + 'durum' + Q + ':' + Q + 'onay_bekliyor' + Q;
+    
+    JBody = JBody + '}';
+
+    RestM = TclRest.Create;
+    RestM.Accept = 'application/json';
+    RestM.ContentType = 'application/json';
+    RestM.ConnectTimeOut = 60000;
+    RestM.BaseURL = FB_URL_M + 'TBLLISTINGS/' + HedefID + '.json';
+    RestM.Method = rmPATCH; 
+    RestM.Body = JBody;
+    RestM.OnCompleted = 'TeslimTamamlandi';
+    RestM.ExecuteAsync;
+  except
+    ShowMessage('Teslimat Hata: ' + LastExceptionMessage);
+  }
+}
+
+void TeslimKart0; { TeslimIndeks = 0; SecileniTeslimEt; }
+void TeslimKart1; { TeslimIndeks = 1; SecileniTeslimEt; }
+void TeslimKart2; { TeslimIndeks = 2; SecileniTeslimEt; }
+void TeslimKart3; { TeslimIndeks = 3; SecileniTeslimEt; }
+void TeslimKart4; { TeslimIndeks = 4; SecileniTeslimEt; }
+void TeslimKart5; { TeslimIndeks = 5; SecileniTeslimEt; }
+void TeslimKart6; { TeslimIndeks = 6; SecileniTeslimEt; }
+void TeslimKart7; { TeslimIndeks = 7; SecileniTeslimEt; }
+void TeslimKart8; { TeslimIndeks = 8; SecileniTeslimEt; }
+void TeslimKart9; { TeslimIndeks = 9; SecileniTeslimEt; }
+
+// --- REDDETME AKIS%I (ZINCIRLEME ALGORITMA) ---
+
+void ReddetTamamlandi;
+{
+  if (RestM <> nil)
+  {
+    RestM.Free;
+    RestM = Nil;
+  }
+  
+  TRM('Talep reddedildi. Stok ve limit orijinal ilana iade edildi.');
+  ShowMessage(TRSonucM);
+  
+  MarketRezervasyonlariYenile; 
+}
+
+void ReddetAdim3;
+var JBody, Q : String;
+{
+  RestM.Free; RestM = Nil;
+  
+  Q = Chr(34);
+  JBody = '{';
+  JBody = JBody + Q + 'durum' + Q + ':' + Q + 'reddedildi' + Q;
+  JBody = JBody + '}';
+  
+  RestM = TclRest.Create;
+  RestM.Accept = 'application/json';
+  RestM.ContentType = 'application/json';
+  RestM.BaseURL = FB_URL_M + 'TBLLISTINGS/' + G_RedTargetID + '.json';
+  RestM.Method = rmPATCH;
+  RestM.Body = JBody;
+  RestM.OnCompleted = 'ReddetTamamlandi';
+  RestM.ExecuteAsync;
+}
+
+void ReddetAdim2;
+var 
+  AnaJson : String;
+  OncekiAdet, YeniAdet : Integer;
+  OncekiLimit, YeniLimit : Integer;
+  SLimit : String;
+  JBody, Q : String;
+{
+  AnaJson = RestM.Response;
+  RestM.Free; RestM = Nil;
+  
+  OncekiAdet = StrToInt(Clomosy.CLParseJSON(AnaJson, 'adet'));
+  YeniAdet = OncekiAdet + G_RedAdet;
+  
+  SLimit = Clomosy.CLParseJSON(AnaJson, 'talepler.' + G_RedStkKey);
+  if (SLimit == '') { OncekiLimit = 0; } else { OncekiLimit = StrToInt(SLimit); }
+  YeniLimit = OncekiLimit - G_RedAdet;
+  if (YeniLimit < 0) { YeniLimit = 0; }
+  
+  Q = Chr(34);
+  JBody = '{';
+  JBody = JBody + Q + 'adet' + Q + ':' + IntToStr(YeniAdet) + ',';
+  JBody = JBody + Q + 'talepler/' + G_RedStkKey + Q + ':' + IntToStr(YeniLimit);
+  JBody = JBody + '}';
+  
+  RestM = TclRest.Create;
+  RestM.Accept = 'application/json';
+  RestM.ContentType = 'application/json';
+  RestM.BaseURL = FB_URL_M + 'TBLLISTINGS/' + G_RedAnaID + '.json';
+  RestM.Method = rmPATCH;
+  RestM.Body = JBody;
+  RestM.OnCompleted = 'ReddetAdim3';
+  RestM.ExecuteAsync;
+}
+
+void ReddetAdim1;
+var
+  SLimit: String;
+  OncekiLimit, YeniLimit : Integer;
+  JBody, Q : String;
+{
+  G_RedTargetJson = RestM.Response;
+  RestM.Free; RestM = Nil;
+  
+  G_RedAnaID = Clomosy.CLParseJSON(G_RedTargetJson, 'anaIlanId');
+  G_RedStkKey = Clomosy.CLParseJSON(G_RedTargetJson, 'stkKey');
+  G_RedAdet = StrToInt(Clomosy.CLParseJSON(G_RedTargetJson, 'adet'));
+  
+  Q = Chr(34);
+  
+  if ((G_RedAnaID == '') || (G_RedStkKey == ''))
+  {
+    JBody = '{';
+    JBody = JBody + Q + 'durum' + Q + ':' + Q + 'aktif' + Q + ', ';
+    JBody = JBody + Q + 'rezerveEdenAd' + Q + ':' + Q + '' + Q;
+    JBody = JBody + '}';
+
+    RestM = TclRest.Create;
+    RestM.Accept = 'application/json';
+    RestM.ContentType = 'application/json';
+    RestM.BaseURL = FB_URL_M + 'TBLLISTINGS/' + G_RedTargetID + '.json';
+    RestM.Method = rmPATCH; 
+    RestM.Body = JBody;
+    RestM.OnCompleted = 'ReddetTamamlandi';
+    RestM.ExecuteAsync;
+  }
+  else if (G_RedAnaID == G_RedTargetID)
+  {
+    SLimit = Clomosy.CLParseJSON(G_RedTargetJson, 'talepler.' + G_RedStkKey);
+    if (SLimit == '') { OncekiLimit = 0; } else { OncekiLimit = StrToInt(SLimit); }
+    YeniLimit = OncekiLimit - G_RedAdet;
+    if (YeniLimit < 0) { YeniLimit = 0; }
+    
+    JBody = '{';
+    JBody = JBody + Q + 'durum' + Q + ':' + Q + 'aktif' + Q + ', ';
+    JBody = JBody + Q + 'rezerveEdenAd' + Q + ':' + Q + '' + Q + ',';
+    JBody = JBody + Q + 'talepler/' + G_RedStkKey + Q + ':' + IntToStr(YeniLimit);
+    JBody = JBody + '}';
+
+    RestM = TclRest.Create;
+    RestM.Accept = 'application/json';
+    RestM.ContentType = 'application/json';
+    RestM.BaseURL = FB_URL_M + 'TBLLISTINGS/' + G_RedTargetID + '.json';
+    RestM.Method = rmPATCH; 
+    RestM.Body = JBody;
+    RestM.OnCompleted = 'ReddetTamamlandi';
+    RestM.ExecuteAsync;
+  }
+  else
+  {
+    RestM = TclRest.Create;
+    RestM.Accept = 'application/json';
+    RestM.ContentType = 'application/json';
+    RestM.BaseURL = FB_URL_M + 'TBLLISTINGS/' + G_RedAnaID + '.json';
+    RestM.Method = rmGet; 
+    RestM.OnCompleted = 'ReddetAdim2';
+    RestM.ExecuteAsync;
+  }
+}
+
+void SecileniReddet;
+var
+  Kalan : String;
+  j : Integer;
+{
+  try
+    Kalan = IDListeMRez;
+    if (ReddetIndeks > 0)
+    {
+      for j = 1 to ReddetIndeks
+      {
+        Kalan = Copy(Kalan, Pos(';', Kalan) + 1, 100000);
+      }
+    }
+    G_RedTargetID = Copy(Kalan, 1, Pos(';', Kalan) - 1);
+
+    RestM = TclRest.Create;
+    RestM.Accept = 'application/json';
+    RestM.ContentType = 'application/json';
+    RestM.ConnectTimeOut = 60000;
+    RestM.BaseURL = FB_URL_M + 'TBLLISTINGS/' + G_RedTargetID + '.json';
+    RestM.Method = rmGet; 
+    RestM.OnCompleted = 'ReddetAdim1';
+    RestM.ExecuteAsync;
+  except
+    ShowMessage('Reddetme Hata: ' + LastExceptionMessage);
+  }
+}
+
+void ReddetKart0; { ReddetIndeks = 0; SecileniReddet; }
+void ReddetKart1; { ReddetIndeks = 1; SecileniReddet; }
+void ReddetKart2; { ReddetIndeks = 2; SecileniReddet; }
+void ReddetKart3; { ReddetIndeks = 3; SecileniReddet; }
+void ReddetKart4; { ReddetIndeks = 4; SecileniReddet; }
+void ReddetKart5; { ReddetIndeks = 5; SecileniReddet; }
+void ReddetKart6; { ReddetIndeks = 6; SecileniReddet; }
+void ReddetKart7; { ReddetIndeks = 7; SecileniReddet; }
+void ReddetKart8; { ReddetIndeks = 8; SecileniReddet; }
+void ReddetKart9; { ReddetIndeks = 9; SecileniReddet; }
+
+// --- C%I%ZI%M AKIS%I ---
+
+void MarketRezKartlariCiz(AJson : String);
+var
+  Kart : TclProPanel;
+  LblAd : TclProLabel;
+  LblFiyat : TclProLabel;
+  LblAlt : TclProLabel;
+  LblTeslim : TclProLabel;
+  LblReddet : TclProLabel;
+  k : Integer;
+  GorunenNo : Integer;
+  IlanAd : String;
+  Durum : String;
+  MarketAd : String;
+  TamAltMetin : String;
+{
+  try
+    GorunenNo = 0;
+    IDListeMRez = '';
+
+    for k = 2001 to SayacM
+    {
+      if (Pos('"' + IntToStr(k) + '"', AJson) > 0)
+      {
+        Durum = Clomosy.CLParseJSON(AJson, IntToStr(k) + '.durum');
+
+        if (Durum == 'rezerve')
+        {
+          MarketAd = Clomosy.CLParseJSON(AJson, IntToStr(k) + '.marketAd');
+
+          if (MarketAd == G_AktifAd)
+          {
+            IlanAd = Clomosy.CLParseJSON(AJson, IntToStr(k) + '.urunAd');
+
+            Kart = MRezForm.AddNewProPanel(ScrollMRez, 'MKart_' + IntToStr(YenilemeNoM) + '_' + IntToStr(GorunenNo));
+            Kart.Align = alTop; Kart.Height = 100; Kart.Margins.Top = 10;
+            Kart.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#1F2937');
+            Kart.clProSettings.BorderColor = clAlphaColor.clHexToColor('#F59E0B');
+            Kart.clProSettings.BorderWidth = 2;
+            Kart.clProSettings.RoundHeight = 10; Kart.clProSettings.RoundWidth = 10;
+            Kart.SetclProSettings(Kart.clProSettings);
+
+            // 1. SAG BOLUM (alRight)
+            TRM('REDDET');
+            LblReddet = MRezForm.AddNewProLabel(Kart, 'LblRddt_' + IntToStr(YenilemeNoM) + '_' + IntToStr(GorunenNo), TRSonucM);
+            LblReddet.Align = alRight;
+            LblReddet.Width = 70;
+            LblReddet.Margins.Right = 10;
+            LblReddet.Margins.Top = 12;
+            LblReddet.Margins.Bottom = 12;
+            LblReddet.clProSettings.FontSize = 11;
+            LblReddet.clProSettings.FontColor = clAlphaColor.clWhite;
+            LblReddet.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#EF4444');
+            LblReddet.clProSettings.FontHorzAlign = palCenter;
+            LblReddet.clProSettings.TextSettings.Font.Style = [fsBold];
+            LblReddet.clProSettings.RoundHeight = 6;
+            LblReddet.clProSettings.RoundWidth = 6;
+            LblReddet.SetclProSettings(LblReddet.clProSettings);
+            
+            if (GorunenNo < 10)
+            {
+               MRezForm.AddNewEvent(LblReddet, tbeOnClick, 'ReddetKart' + IntToStr(GorunenNo));
+            }
+
+            TRM('TESLI%M ET');
+            LblTeslim = MRezForm.AddNewProLabel(Kart, 'LblTslm_' + IntToStr(YenilemeNoM) + '_' + IntToStr(GorunenNo), TRSonucM);
+            LblTeslim.Align = alRight;
+            LblTeslim.Width = 85;
+            LblTeslim.Margins.Right = 10;
+            LblTeslim.Margins.Top = 12; 
+            LblTeslim.Margins.Bottom = 12;
+            LblTeslim.clProSettings.FontSize = 11;
+            LblTeslim.clProSettings.FontColor = clAlphaColor.clWhite;
+            LblTeslim.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#10B981'); 
+            LblTeslim.clProSettings.FontHorzAlign = palCenter;
+            LblTeslim.clProSettings.TextSettings.Font.Style = [fsBold];
+            LblTeslim.clProSettings.RoundHeight = 6;
+            LblTeslim.clProSettings.RoundWidth = 6;
+            LblTeslim.SetclProSettings(LblTeslim.clProSettings);
+            
+            if (GorunenNo < 10)
+            {
+               MRezForm.AddNewEvent(LblTeslim, tbeOnClick, 'TeslimKart' + IntToStr(GorunenNo));
+            }
+
+            // 2. UST BOLUM (alTop)
+            LblAd = MRezForm.AddNewProLabel(Kart, 'MLblAd_' + IntToStr(YenilemeNoM) + '_' + IntToStr(GorunenNo), IlanAd);
+            LblAd.Align = alTop; LblAd.Height = 26; LblAd.Margins.Top = 10; LblAd.Margins.Left = 15; LblAd.Margins.Right = 10;
+            LblAd.clProSettings.FontSize = 15;
+            LblAd.clProSettings.FontColor = clAlphaColor.clHexToColor('#F9FAFB');
+            LblAd.clProSettings.TextSettings.Font.Style = [fsBold];
+            LblAd.SetclProSettings(LblAd.clProSettings);
+
+            // 3. FI%YAT BOLUMU (alLeft)
+            TRM('Ali%nacak U%cret: ' + Clomosy.CLParseJSON(AJson, IntToStr(k) + '.indirimliFiyat') + ' TL');
+            LblFiyat = MRezForm.AddNewProLabel(Kart, 'MLblFyt_' + IntToStr(YenilemeNoM) + '_' + IntToStr(GorunenNo), TRSonucM);
+            LblFiyat.Align = alLeft; LblFiyat.Width = 180; LblFiyat.Margins.Top = 5; LblFiyat.Margins.Left = 15;
+            LblFiyat.clProSettings.FontSize = 14;
+            LblFiyat.clProSettings.FontColor = clAlphaColor.clHexToColor('#34D399');
+            LblFiyat.clProSettings.TextSettings.Font.Style = [fsBold];
+            LblFiyat.SetclProSettings(LblFiyat.clProSettings);
+
+            // 4. ALT BOLUM (alBottom)
+            TamAltMetin = Clomosy.CLParseJSON(AJson, IntToStr(k) + '.adet') + ' adet | Ali%ci%: ' + 
+                          Clomosy.CLParseJSON(AJson, IntToStr(k) + '.rezerveEdenAd');
+            TRM(TamAltMetin);
+            LblAlt = MRezForm.AddNewProLabel(Kart, 'MLblAlt_' + IntToStr(YenilemeNoM) + '_' + IntToStr(GorunenNo), TRSonucM);
+            LblAlt.Align = alBottom; LblAlt.Height = 22; LblAlt.Margins.Bottom = 8; LblAlt.Margins.Left = 15;
+            LblAlt.clProSettings.FontSize = 12;
+            LblAlt.clProSettings.FontColor = clAlphaColor.clHexToColor('#F59E0B');
+            LblAlt.SetclProSettings(LblAlt.clProSettings);
+
+            IDListeMRez = IDListeMRez + IntToStr(k) + ';';
+            GorunenNo = GorunenNo + 1;
+          }
+        }
+      }
+    }
+    
+    if (GorunenNo == 0)
+    {
+       TRM('Henüz rezerve edilmis% bir ilanini%z bulunmuyor.');
+       LblTeslim = MRezForm.AddNewProLabel(ScrollMRez, 'LblBosM', TRSonucM);
+       LblTeslim.Align = alTop; LblTeslim.Height = 50; LblTeslim.Margins.Top = 20;
+       LblTeslim.clProSettings.FontSize = 12;
+       LblTeslim.clProSettings.FontColor = clAlphaColor.clHexToColor('#9CA3AF');
+       LblTeslim.clProSettings.FontHorzAlign = palCenter;
+       LblTeslim.SetclProSettings(LblTeslim.clProSettings);
+    }
+  except
+    ShowMessage('C%izim hatasi%: ' + LastExceptionMessage);
+  }
+}
+
+void FbMarketRezGeldi;
+{
+  MarketRezKartlariCiz(RestM.Response);
+  RestM.Free;
+  RestM = Nil;
+}
+
+void FbSayacMarketRezGeldi;
+{
+  if (RestM.Response == 'null')
+  {
+    SayacM = 0;
+  }
+  else
+  {
+    SayacM = StrToInt(RestM.Response);
+  }
+
+  RestM.Free;
+  RestM = Nil;
+
+  if (SayacM > 0)
+  {
+    RestM = TclRest.Create;
+    RestM.Accept = 'application/json';
+    RestM.ContentType = 'application/json';
+    RestM.ConnectTimeOut = 60000;
+    RestM.BaseURL = FB_URL_M + 'TBLLISTINGS.json';
+    RestM.Method = rmGet;
+    RestM.OnCompleted = 'FbMarketRezGeldi';
+    RestM.ExecuteAsync;
+  }
+}
+
+void MarketRezervasyonlariYenile;
+{
+  if (MRezForm == nil)
+  {
+  }
+  else
+  {
+    try
+      if (ScrollMRez <> nil)
+      {
+        ScrollMRez.Free;
+      }
+      YenilemeNoM = YenilemeNoM + 1;
+
+      ScrollMRez = MRezForm.AddNewVertScrollBox(MRezForm, 'ScrollMRez_' + IntToStr(YenilemeNoM));
+      ScrollMRez.Align = alClient;
+      ScrollMRez.Margins.Top = 15;
+      ScrollMRez.Margins.Left = 20;
+      ScrollMRez.Margins.Right = 20;
+      ScrollMRez.Margins.Bottom = 20;
+
+      RestM = TclRest.Create;
+      RestM.Accept = 'application/json';
+      RestM.ContentType = 'application/json';
+      RestM.ConnectTimeOut = 60000;
+      RestM.BaseURL = FB_URL_M + 'SAYACILAN.json';
+      RestM.Method = rmGet;
+      RestM.OnCompleted = 'FbSayacMarketRezGeldi';
+      RestM.ExecuteAsync;
+    except
+      ShowMessage('Liste Hata: ' + LastExceptionMessage);
+    }
+  }
+}
+
+void AcMarketRezervasyonFormu;
+{
+  FB_URL_M = 'https://replate-c29bb-default-rtdb.europe-west1.firebasedatabase.app/';
+
+  MRezForm = TclForm.Create(Self);
+  ScrollMRez = Nil;
+  MRezForm.SetFormColor('#111827', '', clGNone);
+  MRezForm.BtnGoBack.Visible = True;
+  MRezForm.BtnFormMenu.Visible = False;
+
+  TRM('Gelen Rezervasyonlar');
+  LblBaslikM = MRezForm.AddNewProLabel(MRezForm, 'LblBaslikM', TRSonucM);
+  LblBaslikM.Align = alTop; LblBaslikM.Height = 50; LblBaslikM.Margins.Top = 15;
+  LblBaslikM.clProSettings.FontSize = 20;
+  LblBaslikM.clProSettings.FontColor = clAlphaColor.clHexToColor('#F9FAFB');
+  LblBaslikM.clProSettings.FontHorzAlign = palCenter;
+  LblBaslikM.clProSettings.TextSettings.Font.Style = [fsBold];
+  LblBaslikM.SetclProSettings(LblBaslikM.clProSettings);
+
+  YenilemeNoM = 0;
+
+  MarketRezervasyonlariYenile;
+
+  MRezForm.Run;
+}

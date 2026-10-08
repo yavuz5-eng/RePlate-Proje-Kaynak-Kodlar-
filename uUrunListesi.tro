@@ -1,0 +1,470 @@
+uses uAnaSayfa;
+uses uIlanOlustur;
+
+var
+  ListeForm    : TclForm;
+  LblBaslik    : TclProLabel;
+  ScrollListe  : TclVertScrollBox;
+  BtnEkle      : TclProButton;
+  BtnYenile    : TclProButton; 
+  YenilemeNo   : Integer;
+  G_MarketAd   : String;
+  
+  // Silme ve Ilan islemleri
+  IDListe      : String;
+  AdListe      : String;
+  FiyatListe   : String;
+  AdetListe    : String;
+  SktListe     : String;
+  
+  SilIndeks    : Integer;
+  IlanIndeks   : Integer;
+  
+  ImgSil       : TclImage;   
+  StokMetni    : String;
+  TRSonuc      : String;
+  RestL        : TclRest;
+  FB_URL       : String;
+  SayacFB      : Integer;
+  
+  // Filtreleme ve Arama
+  PnlFiltreWrapper : TclProPanel; 
+  CmbFiltre        : TclComboBox; 
+  G_SeciliKategori : String; 
+  PnlAramaWrapper  : TclProPanel;
+  EdtArama         : TclEdit;
+  BtnAra           : TclProButton;
+  G_AramaMetni     : String;
+  G_TemizMetin     : String;
+
+  // Acil İlanlar 
+  G_AcilGoster     : Boolean;
+  BtnAcil          : TclProButton;
+
+void TRDegistir(AKod : String; AHarf : String);
+{
+  while (Pos(AKod, TRSonuc) > 0)
+  {
+    TRSonuc = Copy(TRSonuc, 1, Pos(AKod, TRSonuc) - 1) + AHarf + Copy(TRSonuc, Pos(AKod, TRSonuc) + 2, 100000);
+  }
+}
+
+void TR(AMetin : String);
+{
+  TRSonuc = AMetin;
+  TRDegistir('c%', Chr(231));
+  TRDegistir('C%', Chr(199));
+  TRDegistir('g%', Chr(287));
+  TRDegistir('G%', Chr(286));
+  TRDegistir('s%', Chr(351));
+  TRDegistir('S%', Chr(350));
+  TRDegistir('i%', Chr(305));
+  TRDegistir('I%', Chr(304));
+  TRDegistir('u%', Chr(252));
+  TRDegistir('U%', Chr(220));
+  TRDegistir('o%', Chr(246));
+  TRDegistir('O%', Chr(214));
+}
+
+void MetniTemizle(AMetin : String);
+var
+  i : Integer;
+  Harf : String;
+{
+  G_TemizMetin = '';
+  for i = 1 to Length(AMetin)
+  {
+    Harf = Copy(AMetin, i, 1);
+    
+    if ((Harf == Chr(252)) || (Harf == Chr(220))) { Harf = 'u'; }
+    else if ((Harf == Chr(199)) || (Harf == Chr(231))) { Harf = 'c'; }
+    else if ((Harf == Chr(286)) || (Harf == Chr(287))) { Harf = 'g'; }
+    else if ((Harf == Chr(350)) || (Harf == Chr(351))) { Harf = 's'; }
+    else if ((Harf == Chr(304)) || (Harf == Chr(305))) { Harf = 'i'; }
+    else if ((Harf == Chr(214)) || (Harf == Chr(246))) { Harf = 'o'; }
+    
+    G_TemizMetin = G_TemizMetin + Harf;
+  }
+  G_TemizMetin = LowerCase(G_TemizMetin);
+}
+
+void ListeyiYenile; forward;
+
+void AcilDurumDegistir;
+{
+  G_AcilGoster = not G_AcilGoster;
+  if (G_AcilGoster) 
+  { 
+    TR('Tüm I%lanlari% Göster'); 
+    BtnAcil.Text = TRSonuc; 
+    BtnAcil.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#F59E0B'); 
+  }
+  else 
+  { 
+    TR('Acil I%lanlari% Göster'); 
+    BtnAcil.Text = TRSonuc; 
+    BtnAcil.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#EF4444'); 
+  }
+  BtnAcil.SetclProSettings(BtnAcil.clProSettings);
+  ListeyiYenile;
+}
+
+void AramaTetikle;
+{
+  G_AramaMetni = EdtArama.Text;
+  ListeyiYenile;
+}
+
+void FiltreDegisti;
+{
+  G_SeciliKategori = CmbFiltre.Text;
+  ListeyiYenile;
+}
+
+void KartlariCiz(AJson : String);
+var
+  Kart : TclProPanel;
+  LblAd : TclProLabel;
+  LblFiyat : TclProLabel;
+  LblStok : TclProLabel;
+  ImgIlan : TclImage;  
+  LblKategori : TclProLabel; 
+  k : Integer;
+  GorunenNo : Integer;
+  KalanGun : Integer;
+  RenkKodu : String;
+  SktStr : String;
+  UrunAd : String;
+  KategoriAd : String; 
+  UrunMarketAd : String; 
+  UrunDurum : String; // <--- YENİ: Durumu tutacağımız değişken
+  ArananTemiz, AdTemiz : String;
+{
+  try
+    if (ListeForm == nil) { Exit; }
+    
+    IDListe = ''; AdListe = ''; FiyatListe = ''; AdetListe = ''; SktListe = '';
+    GorunenNo = 0;
+
+    for k = 1001 to SayacFB
+    {
+      if (Pos('"' + IntToStr(k) + '"', AJson) > 0)
+      {
+        UrunAd = Clomosy.CLParseJSON(AJson, IntToStr(k) + '.ad');
+        SktStr = Clomosy.CLParseJSON(AJson, IntToStr(k) + '.skt');
+        KategoriAd = Clomosy.CLParseJSON(AJson, IntToStr(k) + '.kategori'); 
+        
+        try
+          UrunMarketAd = Clomosy.CLParseJSON(AJson, IntToStr(k) + '.marketAd');
+          UrunDurum = Clomosy.CLParseJSON(AJson, IntToStr(k) + '.durum'); // <--- YENİ: JSON'dan durumu okuyoruz
+        except
+          UrunMarketAd = ''; 
+          UrunDurum = '';
+        }
+
+        if (KategoriAd == '') { KategoriAd = 'Genel'; }
+
+        if ((UrunAd <> '') && (SktStr <> '') && (UrunMarketAd == G_MarketAd))
+        {
+          if ((G_SeciliKategori == 'Tümü') || (G_SeciliKategori == KategoriAd))
+          {
+            MetniTemizle(G_AramaMetni); ArananTemiz = G_TemizMetin;
+            MetniTemizle(UrunAd); AdTemiz = G_TemizMetin;
+
+            if ((ArananTemiz == '') || (Pos(ArananTemiz, AdTemiz) > 0))
+            {
+              KalanGun = Trunc(EncodeDate(StrToInt(Copy(SktStr, 1, 4)), StrToInt(Copy(SktStr, 6, 2)), StrToInt(Copy(SktStr, 9, 2))) - Date);
+
+              if ((G_AcilGoster) && (KalanGun > 3)) 
+              {
+                // Acil filtresi açıkken SKT'si 3 günden fazla kalanları çizme
+              }
+              else
+              {
+                if (KalanGun < 0)
+                {
+                  RenkKodu = '#991B1B';
+                  TR('SKT GEC%TI%!');
+                  StokMetni = Clomosy.CLParseJSON(AJson, IntToStr(k) + '.stok') + ' adet | ' + TRSonuc;
+                }
+                else
+                {
+                  if (KalanGun < 3) { RenkKodu = '#EF4444'; StokMetni = Clomosy.CLParseJSON(AJson, IntToStr(k) + '.stok') + ' adet | ' + IntToStr(KalanGun) + ' gün'; }
+                  else if (KalanGun <= 7) { RenkKodu = '#F59E0B'; StokMetni = Clomosy.CLParseJSON(AJson, IntToStr(k) + '.stok') + ' adet | ' + IntToStr(KalanGun) + ' gün'; }
+                  else { RenkKodu = '#10B981'; StokMetni = Clomosy.CLParseJSON(AJson, IntToStr(k) + '.stok') + ' adet | ' + IntToStr(KalanGun) + ' gün'; }
+                }
+
+                Kart = ListeForm.AddNewProPanel(ScrollListe, 'Kart_' + IntToStr(YenilemeNo) + '_' + IntToStr(GorunenNo));
+                Kart.Align = alTop; Kart.Height = 100; Kart.Margins.Top = 10; 
+                Kart.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#1F2937');
+                Kart.clProSettings.BorderColor = clAlphaColor.clHexToColor(RenkKodu);
+                Kart.clProSettings.BorderWidth = 2;
+                Kart.clProSettings.RoundHeight = 10; Kart.clProSettings.RoundWidth = 10;
+                Kart.SetclProSettings(Kart.clProSettings);
+
+                TR(KategoriAd);
+                LblKategori = ListeForm.AddNewProLabel(Kart, 'LblKat_' + IntToStr(YenilemeNo) + '_' + IntToStr(GorunenNo), TRSonuc);
+                LblKategori.Align = alBottom; LblKategori.Height = 20; LblKategori.Margins.Right = 15; LblKategori.Margins.Bottom = 5;
+                LblKategori.clProSettings.FontColor = clAlphaColor.clHexToColor('#9CA3AF');
+                LblKategori.clProSettings.FontHorzAlign = palTrailing;
+                LblKategori.clProSettings.FontSize = 11;
+                LblKategori.SetclProSettings(LblKategori.clProSettings);
+
+                LblAd = ListeForm.AddNewProLabel(Kart, 'LblAd_' + IntToStr(YenilemeNo) + '_' + IntToStr(GorunenNo), UrunAd);
+                LblAd.Align = alTop; LblAd.Height = 28; LblAd.Margins.Top = 12; LblAd.Margins.Left = 15;
+                LblAd.clProSettings.FontSize = 15;
+                LblAd.clProSettings.FontColor = clAlphaColor.clHexToColor('#F9FAFB');
+                LblAd.clProSettings.TextSettings.Font.Style = [fsBold];
+                LblAd.SetclProSettings(LblAd.clProSettings);
+
+                LblFiyat = ListeForm.AddNewProLabel(Kart, 'LblFiyat_' + IntToStr(YenilemeNo) + '_' + IntToStr(GorunenNo), 'TL ' + Clomosy.CLParseJSON(AJson, IntToStr(k) + '.fiyat'));
+                LblFiyat.Align = alLeft; LblFiyat.Width = 120; LblFiyat.Margins.Left = 15;
+                LblFiyat.clProSettings.FontSize = 13;
+                LblFiyat.clProSettings.FontColor = clAlphaColor.clHexToColor('#7C7CF0');
+                LblFiyat.clProSettings.TextSettings.Font.Style = [fsBold];
+                LblFiyat.SetclProSettings(LblFiyat.clProSettings);
+
+                IDListe = IDListe + IntToStr(k) + ';';
+                AdListe = AdListe + UrunAd + ';';
+                FiyatListe = FiyatListe + Clomosy.CLParseJSON(AJson, IntToStr(k) + '.fiyat') + ';';
+                AdetListe = AdetListe + Clomosy.CLParseJSON(AJson, IntToStr(k) + '.stok') + ';';
+                SktListe = SktListe + SktStr + ';';
+
+                if (GorunenNo < 10)
+                {
+                  ImgSil = ListeForm.AddNewImage(Kart, 'ImgSil_' + IntToStr(YenilemeNo) + '_' + IntToStr(GorunenNo));
+                  ImgSil.Align = alRight; 
+                  ImgSil.Width = 24; 
+                  ImgSil.Margins.Right = 15;
+                  ImgSil.Margins.Top = 0;      
+                  ImgSil.Margins.Bottom = 15;  
+                  ListeForm.SetImage(ImgSil, 'trash'); 
+                  ListeForm.AddNewEvent(ImgSil, tbeOnClick, 'SilKart' + IntToStr(GorunenNo));
+
+                  // <--- YENİ: Hem tarihi geçmemiş olacak hem de durumu "ilanda" OLMAYACAK
+                  if ((KalanGun >= 0) && (UrunDurum <> 'ilanda')) 
+                  {
+                    ImgIlan = ListeForm.AddNewImage(Kart, 'ImgIlan_' + IntToStr(YenilemeNo) + '_' + IntToStr(GorunenNo));
+                    ImgIlan.Align = alRight; 
+                    ImgIlan.Width = 26; 
+                    ImgIlan.Margins.Right = 12; 
+                    ImgIlan.Margins.Top = 0;
+                    ImgIlan.Margins.Bottom = 15; 
+                    ListeForm.SetImage(ImgIlan, 'ilan'); 
+                    ListeForm.AddNewEvent(ImgIlan, tbeOnClick, 'IlanKart' + IntToStr(GorunenNo));
+                  }
+                }
+
+                LblStok = ListeForm.AddNewProLabel(Kart, 'LblStok_' + IntToStr(YenilemeNo) + '_' + IntToStr(GorunenNo), StokMetni);
+                LblStok.Align = alRight; LblStok.Width = 100; LblStok.Margins.Right = 8;
+                LblStok.clProSettings.FontSize = 12;
+                LblStok.clProSettings.FontColor = clAlphaColor.clHexToColor(RenkKodu);
+                LblStok.SetclProSettings(LblStok.clProSettings);
+
+                GorunenNo = GorunenNo + 1;
+              }
+            }
+          }
+        }
+      }
+    }
+  except
+    ShowMessage('Kart c%izim hatasi%: ' + LastExceptionMessage);
+  }
+}
+
+void FbUrunlerGeldiL;
+{
+  KartlariCiz(RestL.Response);
+  RestL.Free; RestL = Nil;
+}
+
+void FbSayacGeldiL;
+{
+  if (RestL.Response == 'null') { SayacFB = 0; } else { SayacFB = StrToInt(RestL.Response); }
+  RestL.Free; RestL = Nil;
+
+  if (SayacFB > 0)
+  {
+    RestL = TclRest.Create;
+    RestL.Accept = 'application/json'; RestL.ContentType = 'application/json'; RestL.ConnectTimeOut = 60000;
+    RestL.BaseURL = FB_URL + 'TBLPRODUCTS.json';
+    RestL.Method = rmGet;
+    RestL.OnCompleted = 'FbUrunlerGeldiL';
+    RestL.ExecuteAsync;
+  }
+}
+
+void ListeyiYenile;
+{
+  if (ListeForm == nil) { }
+  else
+  {
+    try
+      if (ScrollListe <> nil) { ScrollListe.Free; ScrollListe = nil; }
+      YenilemeNo = YenilemeNo + 1;
+
+      ScrollListe = ListeForm.AddNewVertScrollBox(ListeForm, 'ScrollListe_' + IntToStr(YenilemeNo));
+      ScrollListe.Align = alClient;
+      ScrollListe.Margins.Top = 15; ScrollListe.Margins.Left = 20; ScrollListe.Margins.Right = 20; ScrollListe.Margins.Bottom = 20;
+
+      RestL = TclRest.Create;
+      RestL.Accept = 'application/json'; RestL.ContentType = 'application/json'; RestL.ConnectTimeOut = 60000;
+      RestL.BaseURL = FB_URL + 'SAYAC.json';
+      RestL.Method = rmGet;
+      RestL.OnCompleted = 'FbSayacGeldiL';
+      RestL.ExecuteAsync;
+    except
+      // Form kapalıyken arka planda yenileme yapmaya çalışırsa hatayı sessizce yut
+      // ShowMessage('Liste Hata: ' + LastExceptionMessage);
+    }
+  }
+}
+
+void SilTamamlandi;
+{
+  RestL.Free; RestL = Nil;
+  ListeyiYenile; uAnaSayfa.OzetiYenile;
+}
+
+void SecileniSil;
+var
+  Kalan, HedefID : String; j : Integer;
+{
+  try
+    Kalan = IDListe;
+    if (SilIndeks > 0) { for j = 1 to SilIndeks { Kalan = Copy(Kalan, Pos(';', Kalan) + 1, 100000); } }
+    HedefID = Copy(Kalan, 1, Pos(';', Kalan) - 1);
+
+    RestL = TclRest.Create;
+    RestL.Accept = 'application/json'; RestL.ContentType = 'application/json'; RestL.ConnectTimeOut = 60000;
+    RestL.BaseURL = FB_URL + 'TBLPRODUCTS/' + HedefID + '.json';
+    RestL.Method = rmDELETE;
+    RestL.OnCompleted = 'SilTamamlandi';
+    RestL.ExecuteAsync;
+  except
+    ShowMessage('Silme Hata: ' + LastExceptionMessage);
+  }
+}
+
+void SilKart0; { SilIndeks = 0; SecileniSil; } void SilKart1; { SilIndeks = 1; SecileniSil; }
+void SilKart2; { SilIndeks = 2; SecileniSil; } void SilKart3; { SilIndeks = 3; SecileniSil; }
+void SilKart4; { SilIndeks = 4; SecileniSil; } void SilKart5; { SilIndeks = 5; SecileniSil; }
+void SilKart6; { SilIndeks = 6; SecileniSil; } void SilKart7; { SilIndeks = 7; SecileniSil; }
+void SilKart8; { SilIndeks = 8; SecileniSil; } void SilKart9; { SilIndeks = 9; SecileniSil; }
+
+void SecileniIlanaAktar;
+var
+  kID, kAd, kFiyat, kAdet, kSkt : String; j : Integer;
+{
+  try
+    kID = IDListe; kAd = AdListe; kFiyat = FiyatListe; kAdet = AdetListe; kSkt = SktListe;
+    if (IlanIndeks > 0)
+    {
+      for j = 1 to IlanIndeks
+      {
+        kID = Copy(kID, Pos(';', kID) + 1, 100000); kAd = Copy(kAd, Pos(';', kAd) + 1, 100000);
+        kFiyat = Copy(kFiyat, Pos(';', kFiyat) + 1, 100000); kAdet = Copy(kAdet, Pos(';', kAdet) + 1, 100000);
+        kSkt = Copy(kSkt, Pos(';', kSkt) + 1, 100000);
+      }
+    }
+    uIlanOlustur.G_UrunId = Copy(kID, 1, Pos(';', kID) - 1);
+    uIlanOlustur.G_UrunAd = Copy(kAd, 1, Pos(';', kAd) - 1);
+    uIlanOlustur.G_NormalFiyat = StrToInt(Copy(kFiyat, 1, Pos(';', kFiyat) - 1));
+    uIlanOlustur.G_Adet = StrToInt(Copy(kAdet, 1, Pos(';', kAdet) - 1));
+    uIlanOlustur.G_Skt = Copy(kSkt, 1, Pos(';', kSkt) - 1);
+    uIlanOlustur.G_MarketAd = G_MarketAd;
+    uIlanOlustur.AcIlanOlusturFormu;
+  except
+    ShowMessage('Aktarim Hata: ' + LastExceptionMessage);
+  }
+}
+
+void IlanKart0; { IlanIndeks = 0; SecileniIlanaAktar; } void IlanKart1; { IlanIndeks = 1; SecileniIlanaAktar; }
+void IlanKart2; { IlanIndeks = 2; SecileniIlanaAktar; } void IlanKart3; { IlanIndeks = 3; SecileniIlanaAktar; }
+void IlanKart4; { IlanIndeks = 4; SecileniIlanaAktar; } void IlanKart5; { IlanIndeks = 5; SecileniIlanaAktar; }
+void IlanKart6; { IlanIndeks = 6; SecileniIlanaAktar; } void IlanKart7; { IlanIndeks = 7; SecileniIlanaAktar; }
+void IlanKart8; { IlanIndeks = 8; SecileniIlanaAktar; } void IlanKart9; { IlanIndeks = 9; SecileniIlanaAktar; }
+
+void AcListeFormu;
+{
+  FB_URL = 'https://replate-c29bb-default-rtdb.europe-west1.firebasedatabase.app/';
+  
+  G_SeciliKategori = 'Tümü';
+  G_AramaMetni = '';
+  G_AcilGoster = False;
+
+  ListeForm = TclForm.Create(Self);
+  ScrollListe = Nil;
+  ListeForm.SetFormColor('#111827', '', clGNone);
+  ListeForm.BtnGoBack.Visible = True;
+  ListeForm.BtnFormMenu.Visible = False;
+
+  LblBaslik = ListeForm.AddNewProLabel(ListeForm, 'LblBaslik', 'RePlate - Ürünler');
+  LblBaslik.Align = alTop; LblBaslik.Height = 50; LblBaslik.Margins.Top = 15;
+  LblBaslik.clProSettings.FontSize = 20; LblBaslik.clProSettings.FontColor = clAlphaColor.clHexToColor('#F9FAFB');
+  LblBaslik.clProSettings.FontHorzAlign = palCenter; LblBaslik.clProSettings.TextSettings.Font.Style = [fsBold];
+  LblBaslik.SetclProSettings(LblBaslik.clProSettings);
+
+  BtnEkle = ListeForm.AddNewProButton(ListeForm, 'BtnEkle', '+ Yeni Ürün Ekle');
+  BtnEkle.Align = alTop; BtnEkle.Height = 46; BtnEkle.Margins.Top = 10; BtnEkle.Margins.Left = 20; BtnEkle.Margins.Right = 20;
+  BtnEkle.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#5B5BE5');
+  BtnEkle.clProSettings.FontColor = clAlphaColor.clWhite;
+  BtnEkle.clProSettings.RoundHeight = 10; BtnEkle.clProSettings.RoundWidth = 10; BtnEkle.clProSettings.BorderWidth = 0;
+  BtnEkle.clProSettings.TextSettings.Font.Style = [fsBold];
+  BtnEkle.SetclProSettings(BtnEkle.clProSettings);
+
+  BtnYenile = ListeForm.AddNewProButton(ListeForm, 'BtnYenile', 'Listeyi Yenile');
+  BtnYenile.Align = alTop; BtnYenile.Height = 35; BtnYenile.Margins.Top = 8; BtnYenile.Margins.Left = 20; BtnYenile.Margins.Right = 20;
+  BtnYenile.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#374151');
+  BtnYenile.clProSettings.FontColor = clAlphaColor.clWhite;
+  BtnYenile.clProSettings.RoundHeight = 8; BtnYenile.clProSettings.RoundWidth = 8; BtnYenile.clProSettings.BorderWidth = 0;
+  BtnYenile.clProSettings.TextSettings.Font.Style = [fsBold];
+  BtnYenile.SetclProSettings(BtnYenile.clProSettings);
+  ListeForm.AddNewEvent(BtnYenile, tbeOnClick, 'ListeyiYenile');
+
+  // ACİL İLANLAR BUTONU
+  TR('Acil I%lanlari% Göster'); 
+  BtnAcil = ListeForm.AddNewProButton(ListeForm, 'BtnAcil', TRSonuc);
+  BtnAcil.Align = alTop; BtnAcil.Height = 35; BtnAcil.Margins.Top = 8; BtnAcil.Margins.Left = 20; BtnAcil.Margins.Right = 20;
+  BtnAcil.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#EF4444');
+  BtnAcil.clProSettings.FontColor = clAlphaColor.clWhite;
+  BtnAcil.clProSettings.RoundHeight = 8; BtnAcil.clProSettings.RoundWidth = 8; BtnAcil.clProSettings.BorderWidth = 0;
+  BtnAcil.clProSettings.TextSettings.Font.Style = [fsBold];
+  BtnAcil.SetclProSettings(BtnAcil.clProSettings);
+  ListeForm.AddNewEvent(BtnAcil, tbeOnClick, 'AcilDurumDegistir');
+
+  PnlFiltreWrapper = ListeForm.AddNewProPanel(ListeForm, 'PnlFiltreWrapper');
+  PnlFiltreWrapper.Align = alTop; PnlFiltreWrapper.Height = 44; PnlFiltreWrapper.Margins.Top = 8; PnlFiltreWrapper.Margins.Left = 20; PnlFiltreWrapper.Margins.Right = 20; PnlFiltreWrapper.Margins.Bottom = 0;
+  PnlFiltreWrapper.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#E5E7EB');
+  PnlFiltreWrapper.clProSettings.BorderColor = clAlphaColor.clHexToColor('#4B5563'); PnlFiltreWrapper.clProSettings.BorderWidth = 1;
+  PnlFiltreWrapper.clProSettings.RoundHeight = 8; PnlFiltreWrapper.clProSettings.RoundWidth = 8;
+  PnlFiltreWrapper.SetclProSettings(PnlFiltreWrapper.clProSettings);
+
+  CmbFiltre = ListeForm.AddNewComboBox(PnlFiltreWrapper, 'CmbFiltre');
+  CmbFiltre.Align = alClient; CmbFiltre.Margins.Top = 2; CmbFiltre.Margins.Left = 5; CmbFiltre.Margins.Right = 5; CmbFiltre.Margins.Bottom = 2;
+  CmbFiltre.AddItem('Tümü', '0'); CmbFiltre.AddItem('Meyve & Sebze', '1'); CmbFiltre.AddItem('Süt Ürünleri', '2'); CmbFiltre.AddItem('Et & Tavuk', '3'); CmbFiltre.AddItem('Unlu Mamuller', '4'); CmbFiltre.AddItem('Genel', '5');
+  ListeForm.AddNewEvent(CmbFiltre, tbeOnChange, 'FiltreDegisti');
+
+  PnlAramaWrapper = ListeForm.AddNewProPanel(ListeForm, 'PnlAramaWrapper');
+  PnlAramaWrapper.Align = alTop; PnlAramaWrapper.Height = 44; PnlAramaWrapper.Margins.Top = 5; PnlAramaWrapper.Margins.Left = 20; PnlAramaWrapper.Margins.Right = 20; PnlAramaWrapper.Margins.Bottom = 5; 
+  PnlAramaWrapper.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#E5E7EB');
+  PnlAramaWrapper.clProSettings.BorderColor = clAlphaColor.clHexToColor('#4B5563'); PnlAramaWrapper.clProSettings.BorderWidth = 1;
+  PnlAramaWrapper.clProSettings.RoundHeight = 8; PnlAramaWrapper.clProSettings.RoundWidth = 8;
+  PnlAramaWrapper.SetclProSettings(PnlAramaWrapper.clProSettings);
+
+  TR('U%ru%nlerde kelime ara...');
+  EdtArama = ListeForm.AddNewEdit(PnlAramaWrapper, 'EdtArama', TRSonuc);
+  EdtArama.Align = alClient; EdtArama.Margins.Top = 2; EdtArama.Margins.Left = 10; EdtArama.Margins.Bottom = 2; EdtArama.Margins.Right = 5;
+
+  BtnAra = ListeForm.AddNewProButton(PnlAramaWrapper, 'BtnAra', 'ARA');
+  BtnAra.Align = alRight; BtnAra.Width = 65; BtnAra.Margins.Top = 3; BtnAra.Margins.Right = 3; BtnAra.Margins.Bottom = 3;
+  BtnAra.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#3B82F6'); BtnAra.clProSettings.FontColor = clAlphaColor.clHexToColor('#FFFFFF');
+  BtnAra.clProSettings.RoundHeight = 5; BtnAra.clProSettings.RoundWidth = 5; BtnAra.clProSettings.TextSettings.Font.Style = [fsBold];
+  BtnAra.SetclProSettings(BtnAra.clProSettings);
+  ListeForm.AddNewEvent(BtnAra, tbeOnClick, 'AramaTetikle');
+
+  YenilemeNo = 0;
+  ListeyiYenile;
+  ListeForm.Run;
+}

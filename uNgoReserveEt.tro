@@ -1,0 +1,407 @@
+var
+  OnayForm         : TclForm;
+  PnlOnayMerkez    : TclProPanel;
+  LblOnayBaslik    : TclProLabel;
+  LblOnaySoru      : TclProLabel;
+  LblLimitBilgi    : TclProLabel;   // YENİ
+  EdtMiktarOnay    : TclProEdit;
+  BtnOnayla        : TclProButton;
+  BtnIptal         : TclProButton;
+
+  RestR            : TclRest;
+  FB_URL_R         : String;
+  
+  // uIlanlar'dan aktarılacak veriler
+  G_HedefID           : String;
+  G_AktifAd           : String;
+  G_AktifKullaniciAdi : String;   // YENİ: benzersiz STK kimligi
+  
+  G_TalepAdet      : Integer;
+  G_KalanAdet      : Integer;
+  G_OrijinalJson   : String;
+  SayacYeniIlan    : Integer;
+
+  // YENİ: max talep limiti degiskenleri
+  G_TemizKey       : String;
+  G_MaxTalep       : Integer;
+  G_OncekiToplam   : Integer;
+  G_YeniToplam     : Integer;
+
+// --- FIREBASE ANAHTAR TEMIZLEME (. @ vb. yasak karakterler) ---
+
+void KeyReplace(AKar : String);
+{
+  while (Pos(AKar, G_TemizKey) > 0)
+  {
+    G_TemizKey = Copy(G_TemizKey, 1, Pos(AKar, G_TemizKey) - 1) + '_' + Copy(G_TemizKey, Pos(AKar, G_TemizKey) + 1, 100000);
+  }
+}
+
+void AnahtarTemizle(AMetin : String);
+{
+  G_TemizKey = AMetin;
+  KeyReplace('.');
+  KeyReplace('@');
+  KeyReplace('#');
+  KeyReplace('$');
+  KeyReplace('[');
+  KeyReplace(']');
+  KeyReplace('/');
+  if (G_TemizKey == '') { G_TemizKey = 'anonim'; }
+}
+
+void RezerveTamamlandi;
+{
+  if (RestR <> nil)
+  {
+    RestR.Free;
+    RestR = Nil;
+  }
+  
+  ShowMessage('Rezervasyon basariyla tamamlandi. Listeyi guncellemek icin YENILE butonuna basabilirsiniz.');
+  OnayForm.Close;
+}
+
+void KismiRezerveAdimi4;
+{
+  RestR.Free; RestR = Nil;
+
+  RestR = TclRest.Create;
+  RestR.Accept = 'application/json';
+  RestR.ContentType = 'application/json';
+  RestR.BaseURL = FB_URL_R + 'SAYACILAN.json';
+  RestR.Method = rmPUT;
+  RestR.Body = IntToStr(SayacYeniIlan);
+  RestR.OnCompleted = 'RezerveTamamlandi';
+  RestR.ExecuteAsync;
+}
+
+void KismiRezerveAdimi3;
+var
+  YeniID : String;
+  JBody, Q : String;
+{
+  if (RestR.Response == 'null') { SayacYeniIlan = 0; }
+  else { SayacYeniIlan = StrToInt(RestR.Response); }
+  RestR.Free; RestR = Nil;
+
+  SayacYeniIlan = SayacYeniIlan + 1;
+  YeniID = IntToStr(SayacYeniIlan);
+
+  Q = Chr(34);
+  JBody = '{';
+  JBody = JBody + Q + 'urunAd' + Q + ':' + Q + Clomosy.CLParseJSON(G_OrijinalJson, 'urunAd') + Q + ',';
+  JBody = JBody + Q + 'adet' + Q + ':' + Q + IntToStr(G_TalepAdet) + Q + ',';
+  JBody = JBody + Q + 'durum' + Q + ':' + Q + 'rezerve' + Q + ',';
+  JBody = JBody + Q + 'rezerveEdenAd' + Q + ':' + Q + G_AktifAd + Q + ',';
+  JBody = JBody + Q + 'marketAd' + Q + ':' + Q + Clomosy.CLParseJSON(G_OrijinalJson, 'marketAd') + Q + ',';
+  JBody = JBody + Q + 'kategori' + Q + ':' + Q + Clomosy.CLParseJSON(G_OrijinalJson, 'kategori') + Q + ',';
+  JBody = JBody + Q + 'indirimliFiyat' + Q + ':' + Q + Clomosy.CLParseJSON(G_OrijinalJson, 'indirimliFiyat') + Q + ',';
+  JBody = JBody + Q + 'normalFiyat' + Q + ':' + Q + Clomosy.CLParseJSON(G_OrijinalJson, 'normalFiyat') + Q + ',';
+  JBody = JBody + Q + 'skt' + Q + ':' + Q + Clomosy.CLParseJSON(G_OrijinalJson, 'skt') + Q + ',';
+  
+  // EKLENEN KISIM: Ana ilan kimligi ve STK kimligi
+  JBody = JBody + Q + 'anaIlanId' + Q + ':' + Q + G_HedefID + Q + ',';
+  JBody = JBody + Q + 'stkKey' + Q + ':' + Q + G_TemizKey + Q;
+  
+  JBody = JBody + '}';
+
+  RestR = TclRest.Create;
+  RestR.Accept = 'application/json';
+  RestR.ContentType = 'application/json';
+  RestR.BaseURL = FB_URL_R + 'TBLLISTINGS/' + YeniID + '.json';
+  RestR.Method = rmPUT;
+  RestR.Body = JBody;
+  RestR.OnCompleted = 'KismiRezerveAdimi4';
+  RestR.ExecuteAsync;
+}
+
+void KismiRezerveAdimi2;
+{
+  RestR.Free; RestR = Nil;
+
+  RestR = TclRest.Create;
+  RestR.Accept = 'application/json';
+  RestR.ContentType = 'application/json';
+  RestR.BaseURL = FB_URL_R + 'SAYACILAN.json';
+  RestR.Method = rmGet;
+  RestR.OnCompleted = 'KismiRezerveAdimi3';
+  RestR.ExecuteAsync;
+}
+
+// STK sayaci yazildiktan SONRA stok islemine gec
+void TalepKaydedildiStokDus;
+var
+  JBody, Q : String;
+{
+  if (RestR <> nil) { RestR.Free; RestR = Nil; }
+
+  Q = Chr(34);
+
+  if (G_KalanAdet == 0)
+  {
+    JBody = '{';
+    JBody = JBody + Q + 'durum' + Q + ':' + Q + 'rezerve' + Q + ',';
+    JBody = JBody + Q + 'rezerveEdenAd' + Q + ':' + Q + G_AktifAd + Q + ',';
+    
+    // EKLENEN KISIM: Kendi ID'si ve STK kimligi
+    JBody = JBody + Q + 'anaIlanId' + Q + ':' + Q + G_HedefID + Q + ',';
+    JBody = JBody + Q + 'stkKey' + Q + ':' + Q + G_TemizKey + Q;
+    
+    JBody = JBody + '}';
+
+    RestR = TclRest.Create;
+    RestR.Accept = 'application/json';
+    RestR.ContentType = 'application/json';
+    RestR.BaseURL = FB_URL_R + 'TBLLISTINGS/' + G_HedefID + '.json';
+    RestR.Method = rmPATCH; 
+    RestR.Body = JBody;
+    RestR.OnCompleted = 'RezerveTamamlandi';
+    RestR.ExecuteAsync;
+  }
+  else
+  {
+    JBody = '{' + Q + 'adet' + Q + ':' + Q + IntToStr(G_KalanAdet) + Q + '}';
+    
+    RestR = TclRest.Create;
+    RestR.Accept = 'application/json';
+    RestR.ContentType = 'application/json';
+    RestR.BaseURL = FB_URL_R + 'TBLLISTINGS/' + G_HedefID + '.json';
+    RestR.Method = rmPATCH; 
+    RestR.Body = JBody;
+    RestR.OnCompleted = 'KismiRezerveAdimi2';
+    RestR.ExecuteAsync;
+  }
+}
+
+void GuncelDurumGeldi;
+var
+  MevcutAdet : Integer;
+  Durum : String;
+  SMax : String;
+  SOnceki : String;
+  Kalan : Integer;
+{
+  G_OrijinalJson = RestR.Response;
+  RestR.Free; RestR = Nil;
+
+  if ((G_OrijinalJson == 'null') || (G_OrijinalJson == ''))
+  {
+    ShowMessage('Ilan bulunamadi veya silinmis.');
+    BtnOnayla.Enabled = True;
+    Exit;
+  }
+
+  Durum = Clomosy.CLParseJSON(G_OrijinalJson, 'durum');
+  if (Durum <> 'aktif')
+  {
+    ShowMessage('Bu ilan artik aktif degil.');
+    BtnOnayla.Enabled = True;
+    Exit;
+  }
+
+  MevcutAdet = StrToInt(Clomosy.CLParseJSON(G_OrijinalJson, 'adet'));
+
+  if (G_TalepAdet > MevcutAdet)
+  {
+    ShowMessage('Stok yetersiz! Baska bir STK islem yapmis olabilir. Mevcut: ' + IntToStr(MevcutAdet));
+    BtnOnayla.Enabled = True;
+    Exit;
+  }
+
+  // --- MAX TALEP LIMITI KONTROLU ---
+  AnahtarTemizle(G_AktifKullaniciAdi);
+
+  SMax = Clomosy.CLParseJSON(G_OrijinalJson, 'maxTalep');
+  if (SMax == '') { G_MaxTalep = 0; } else { G_MaxTalep = StrToInt(SMax); }
+
+  SOnceki = Clomosy.CLParseJSON(G_OrijinalJson, 'talepler.' + G_TemizKey);
+  if (SOnceki == '') { G_OncekiToplam = 0; } else { G_OncekiToplam = StrToInt(SOnceki); }
+
+  if (G_MaxTalep > 0)
+  {
+    if ((G_OncekiToplam + G_TalepAdet) > G_MaxTalep)
+    {
+      Kalan = G_MaxTalep - G_OncekiToplam;
+      if (Kalan < 0) { Kalan = 0; }
+      ShowMessage('Talep limitini asiyorsunuz! Bu ilandan kalan hakkiniz: ' + IntToStr(Kalan) + ' adet.');
+      BtnOnayla.Enabled = True;
+      Exit;
+    }
+  }
+
+  G_YeniToplam = G_OncekiToplam + G_TalepAdet;
+  G_KalanAdet = MevcutAdet - G_TalepAdet;
+
+  // Once bu STK'nin bu ilandan toplam talebini guncelle
+  RestR = TclRest.Create;
+  RestR.Accept = 'application/json';
+  RestR.ContentType = 'application/json';
+  RestR.BaseURL = FB_URL_R + 'TBLLISTINGS/' + G_HedefID + '/talepler/' + G_TemizKey + '.json';
+  RestR.Method = rmPUT;
+  RestR.Body = IntToStr(G_YeniToplam);
+  RestR.OnCompleted = 'TalepKaydedildiStokDus';
+  RestR.ExecuteAsync;
+}
+
+void BtnIptalTiklandi;
+{
+  OnayForm.Close;
+}
+
+void BtnOnaylaTiklandi;
+{
+  try
+    G_TalepAdet = StrToInt(EdtMiktarOnay.Text);
+  except
+    ShowMessage('Lutfen gecerli bir sayi giriniz.');
+    Exit;
+  }
+
+  if (G_TalepAdet <= 0) 
+  { 
+    ShowMessage('Sifirdan buyuk bir deger giriniz.'); 
+    Exit; 
+  }
+  
+  BtnOnayla.Enabled = False;
+
+  RestR = TclRest.Create;
+  RestR.Accept = 'application/json';
+  RestR.ContentType = 'application/json';
+  RestR.ConnectTimeOut = 60000;
+  RestR.BaseURL = FB_URL_R + 'TBLLISTINGS/' + G_HedefID + '.json';
+  RestR.Method = rmGet;
+  RestR.OnCompleted = 'GuncelDurumGeldi';
+  RestR.ExecuteAsync;
+}
+
+// Form acilirken limit bilgisini goster
+void LimitBilgisiGeldi;
+var
+  Resp : String;
+  SMax : String;
+  SOnceki : String;
+  Kalan : Integer;
+{
+  Resp = RestR.Response;
+  RestR.Free; RestR = Nil;
+
+  if ((Resp == 'null') || (Resp == ''))
+  {
+    LblLimitBilgi.Text = 'Ilan bilgisi alinamadi.';
+    LblLimitBilgi.SetclProSettings(LblLimitBilgi.clProSettings);
+    Exit;
+  }
+
+  SMax = Clomosy.CLParseJSON(Resp, 'maxTalep');
+  if (SMax == '') { G_MaxTalep = 0; } else { G_MaxTalep = StrToInt(SMax); }
+
+  SOnceki = Clomosy.CLParseJSON(Resp, 'talepler.' + G_TemizKey);
+  if (SOnceki == '') { G_OncekiToplam = 0; } else { G_OncekiToplam = StrToInt(SOnceki); }
+
+  if (G_MaxTalep <= 0)
+  {
+    LblLimitBilgi.Text = 'Bu ilan icin talep limiti yok.';
+  }
+  else
+  {
+    Kalan = G_MaxTalep - G_OncekiToplam;
+    if (Kalan < 0) { Kalan = 0; }
+    LblLimitBilgi.Text = 'Limit: ' + IntToStr(G_MaxTalep) + '  |  Kalan hakkiniz: ' + IntToStr(Kalan);
+
+    if (Kalan <= 0)
+    {
+      LblLimitBilgi.clProSettings.FontColor = clAlphaColor.clHexToColor('#F87171');
+      BtnOnayla.Enabled = False;
+      BtnOnayla.Text = 'LIMIT DOLDU';
+      BtnOnayla.SetclProSettings(BtnOnayla.clProSettings);
+    }
+  }
+  LblLimitBilgi.SetclProSettings(LblLimitBilgi.clProSettings);
+}
+
+void AcReserveFormu;
+{
+  FB_URL_R = 'https://replate-c29bb-default-rtdb.europe-west1.firebasedatabase.app/';
+
+  OnayForm = TclForm.Create(Self);
+  OnayForm.SetFormColor('#111827', '', clGNone);
+  OnayForm.BtnGoBack.Visible = False;
+  OnayForm.BtnFormMenu.Visible = False;
+
+  PnlOnayMerkez = OnayForm.AddNewProPanel(OnayForm, 'PnlOnayMerkez');
+  PnlOnayMerkez.Align = alCenter;
+  PnlOnayMerkez.Width = 280;
+  PnlOnayMerkez.Height = 285;
+  PnlOnayMerkez.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#1E293B');
+  PnlOnayMerkez.clProSettings.BorderColor = clAlphaColor.clHexToColor('#3B82F6');
+  PnlOnayMerkez.clProSettings.BorderWidth = 2;
+  PnlOnayMerkez.clProSettings.RoundHeight = 15;
+  PnlOnayMerkez.clProSettings.RoundWidth = 15;
+  PnlOnayMerkez.SetclProSettings(PnlOnayMerkez.clProSettings);
+
+  LblOnayBaslik = OnayForm.AddNewProLabel(PnlOnayMerkez, 'LblOnayBaslik', 'REZERVASYON ONAYI');
+  LblOnayBaslik.Align = alTop; LblOnayBaslik.Height = 30; LblOnayBaslik.Margins.Top = 15;
+  LblOnayBaslik.clProSettings.FontColor = clAlphaColor.clHexToColor('#3B82F6');
+  LblOnayBaslik.clProSettings.FontHorzAlign = palCenter;
+  LblOnayBaslik.clProSettings.TextSettings.Font.Style = [fsBold];
+  LblOnayBaslik.SetclProSettings(LblOnayBaslik.clProSettings);
+
+  LblOnaySoru = OnayForm.AddNewProLabel(PnlOnayMerkez, 'LblOnaySoru', 'Kac adet rezerve edeceksiniz?');
+  LblOnaySoru.Align = alTop; LblOnaySoru.Height = 22; LblOnaySoru.Margins.Top = 5;
+  LblOnaySoru.clProSettings.FontColor = clAlphaColor.clHexToColor('#9CA3AF');
+  LblOnaySoru.clProSettings.FontHorzAlign = palCenter;
+  LblOnaySoru.SetclProSettings(LblOnaySoru.clProSettings);
+
+  // YENİ: Limit bilgi satiri
+  LblLimitBilgi = OnayForm.AddNewProLabel(PnlOnayMerkez, 'LblLimitBilgi', 'Limit bilgisi yukleniyor...');
+  LblLimitBilgi.Align = alTop; LblLimitBilgi.Height = 22; LblLimitBilgi.Margins.Top = 4; LblLimitBilgi.Margins.Left = 10; LblLimitBilgi.Margins.Right = 10;
+  LblLimitBilgi.clProSettings.FontColor = clAlphaColor.clHexToColor('#FBBF24');
+  LblLimitBilgi.clProSettings.FontHorzAlign = palCenter;
+  LblLimitBilgi.clProSettings.FontSize = 12;
+  LblLimitBilgi.clProSettings.TextSettings.Font.Style = [fsBold];
+  LblLimitBilgi.SetclProSettings(LblLimitBilgi.clProSettings);
+
+  EdtMiktarOnay = OnayForm.AddNewProEdit(PnlOnayMerkez, 'EdtMiktarOnay', '1');
+  EdtMiktarOnay.Align = alTop; EdtMiktarOnay.Height = 45; EdtMiktarOnay.Margins.Top = 12; EdtMiktarOnay.Margins.Left = 30; EdtMiktarOnay.Margins.Right = 30;
+  EdtMiktarOnay.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#0F172A');
+  EdtMiktarOnay.clProSettings.FontColor = clAlphaColor.clHexToColor('#F8FAFC');
+  EdtMiktarOnay.clProSettings.BorderColor = clAlphaColor.clHexToColor('#4B5563');
+  EdtMiktarOnay.clProSettings.BorderWidth = 1;
+  EdtMiktarOnay.clProSettings.RoundHeight = 8; EdtMiktarOnay.clProSettings.RoundWidth = 8;
+  EdtMiktarOnay.clProSettings.FontHorzAlign = palCenter;
+  EdtMiktarOnay.clProSettings.FontSize = 16;
+  EdtMiktarOnay.SetclProSettings(EdtMiktarOnay.clProSettings);
+  
+  BtnOnayla = OnayForm.AddNewProButton(PnlOnayMerkez, 'BtnOnayla', 'ONAYLA');
+  BtnOnayla.Align = alTop; BtnOnayla.Height = 40; BtnOnayla.Margins.Top = 18; BtnOnayla.Margins.Left = 30; BtnOnayla.Margins.Right = 30;
+  BtnOnayla.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#10B981');
+  BtnOnayla.clProSettings.FontColor = clAlphaColor.clWhite;
+  BtnOnayla.clProSettings.RoundHeight = 8; BtnOnayla.clProSettings.RoundWidth = 8;
+  BtnOnayla.clProSettings.TextSettings.Font.Style = [fsBold];
+  BtnOnayla.SetclProSettings(BtnOnayla.clProSettings);
+  OnayForm.AddNewEvent(BtnOnayla, tbeOnClick, 'BtnOnaylaTiklandi');
+
+  BtnIptal = OnayForm.AddNewProButton(PnlOnayMerkez, 'BtnIptal', 'IPTAL');
+  BtnIptal.Align = alTop; BtnIptal.Height = 30; BtnIptal.Margins.Top = 10; BtnIptal.Margins.Left = 30; BtnIptal.Margins.Right = 30;
+  BtnIptal.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#EF4444');
+  BtnIptal.clProSettings.FontColor = clAlphaColor.clWhite;
+  BtnIptal.clProSettings.RoundHeight = 8; BtnIptal.clProSettings.RoundWidth = 8;
+  BtnIptal.clProSettings.TextSettings.Font.Style = [fsBold];
+  BtnIptal.SetclProSettings(BtnIptal.clProSettings);
+  OnayForm.AddNewEvent(BtnIptal, tbeOnClick, 'BtnIptalTiklandi');
+
+  // Acilista limit bilgisini oku ve goster
+  AnahtarTemizle(G_AktifKullaniciAdi);
+  RestR = TclRest.Create;
+  RestR.Accept = 'application/json';
+  RestR.ContentType = 'application/json';
+  RestR.ConnectTimeOut = 60000;
+  RestR.BaseURL = FB_URL_R + 'TBLLISTINGS/' + G_HedefID + '.json';
+  RestR.Method = rmGet;
+  RestR.OnCompleted = 'LimitBilgisiGeldi';
+  RestR.ExecuteAsync;
+
+  OnayForm.Run;
+}

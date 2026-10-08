@@ -1,0 +1,272 @@
+var
+  PGForm       : TclForm;
+  PnlMain      : TclProPanel;
+  LblBaslikPG  : TclProLabel;
+  LblAdPG      : TclProLabel;
+  EdtAdPG      : TclProEdit;
+  LblMailPG    : TclProLabel;
+  EdtMailPG    : TclProEdit;
+  LblSifrePG   : TclProLabel;
+  EdtSifrePG   : TclProEdit;
+  BtnKaydet    : TclProButton;
+  RestPG       : TclRest;
+  FB_URL_PG    : String;
+  TRSonucPG    : String;
+  
+  PG_AktifAd   : String; 
+  SayacPG      : Integer;
+
+void TRDegistirPG(AKod : String; AHarf : String);
+{
+  while (Pos(AKod, TRSonucPG) > 0)
+  {
+    TRSonucPG = Copy(TRSonucPG, 1, Pos(AKod, TRSonucPG) - 1) + AHarf + Copy(TRSonucPG, Pos(AKod, TRSonucPG) + 2, 100000);
+  }
+}
+
+void TRPG(AMetin : String);
+{
+  TRSonucPG = AMetin;
+  TRDegistirPG('c%', Chr(231));
+  TRDegistirPG('C%', Chr(199));
+  TRDegistirPG('g%', Chr(287));
+  TRDegistirPG('G%', Chr(286));
+  TRDegistirPG('s%', Chr(351));
+  TRDegistirPG('S%', Chr(350));
+  TRDegistirPG('i%', Chr(305));
+  TRDegistirPG('I%', Chr(304));
+  TRDegistirPG('u%', Chr(252));
+  TRDegistirPG('U%', Chr(220));
+  TRDegistirPG('o%', Chr(246));
+  TRDegistirPG('O%', Chr(214));
+}
+
+void GuncelleTamamlandi;
+{
+  RestPG.Free;
+  RestPG = Nil;
+  
+  TRPG('Bi%lgi%leri%ni%z bas%ari%yla güncellendi! Lütfen geri% dönüp çi%ki%s% yapi%n ve yeni% bi%lgi%leri%ni%zle gi%ri%s% yapi%n.');
+  ShowMessage(TRSonucPG);
+  
+  PGForm.Close;
+}
+
+void GuncellenecekIDBulundu;
+var
+  k : Integer;
+  Cevap, G_Ad, HedefID, JBody, Q : String;
+  Bulundu : Boolean;
+{
+  Cevap = RestPG.Response;
+  RestPG.Free;
+  RestPG = Nil;
+  
+  Bulundu = False;
+  HedefID = '';
+  
+  for k = 3001 to SayacPG
+  {
+    if (Pos('"' + IntToStr(k) + '"', Cevap) > 0)
+    {
+      G_Ad = Clomosy.CLParseJSON(Cevap, IntToStr(k) + '.gorunenAd');
+      if (G_Ad == PG_AktifAd)
+      {
+         HedefID = IntToStr(k);
+         Bulundu = True;
+      }
+    }
+  }
+  
+  if (Bulundu)
+  {
+     Q = Chr(34);
+     JBody = '{';
+     JBody = JBody + Q + 'gorunenAd' + Q + ':' + Q + EdtAdPG.Text + Q + ',';
+     JBody = JBody + Q + 'kullaniciAdi' + Q + ':' + Q + EdtMailPG.Text + Q + ',';
+     JBody = JBody + Q + 'sifre' + Q + ':' + Q + EdtSifrePG.Text + Q;
+     JBody = JBody + '}';
+     
+     RestPG = TclRest.Create;
+     RestPG.Accept = 'application/json';
+     RestPG.ContentType = 'application/json';
+     RestPG.BaseURL = FB_URL_PG + 'USERS/' + HedefID + '.json';
+     RestPG.Method = rmPATCH;
+     RestPG.Body = JBody;
+     RestPG.OnCompleted = 'GuncelleTamamlandi';
+     RestPG.ExecuteAsync;
+  }
+  else
+  {
+     TRPG('Hata: Kullani%ci% kaydi% bulunamadi%.');
+     ShowMessage(TRSonucPG);
+  }
+}
+
+void KaydetSayacGeldi;
+{
+  if (RestPG.Response == 'null') { SayacPG = 0; }
+  else { SayacPG = StrToInt(RestPG.Response); }
+  RestPG.Free; RestPG = Nil;
+
+  if (SayacPG > 0)
+  {
+    RestPG = TclRest.Create;
+    RestPG.Accept = 'application/json';
+    RestPG.ContentType = 'application/json';
+    RestPG.BaseURL = FB_URL_PG + 'USERS.json';
+    RestPG.Method = rmGet;
+    RestPG.OnCompleted = 'GuncellenecekIDBulundu';
+    RestPG.ExecuteAsync;
+  }
+}
+
+void KaydetTiklandi;
+{
+  if ((EdtAdPG.Text == '') || (EdtMailPG.Text == '') || (EdtSifrePG.Text == ''))
+  {
+    TRPG('Lütfen tüm alanlari% doldurun.');
+    ShowMessage(TRSonucPG);
+  }
+  else
+  {
+    RestPG = TclRest.Create;
+    RestPG.Accept = 'application/json';
+    RestPG.ContentType = 'application/json';
+    RestPG.BaseURL = FB_URL_PG + 'SAYACUSER.json';
+    RestPG.Method = rmGet;
+    RestPG.OnCompleted = 'KaydetSayacGeldi';
+    RestPG.ExecuteAsync;
+  }
+}
+
+void IlkKullanicilariDoldur;
+var
+  k : Integer;
+  Cevap, G_Ad : String;
+{
+  Cevap = RestPG.Response;
+  RestPG.Free; RestPG = Nil;
+  
+  for k = 3001 to SayacPG
+  {
+    if (Pos('"' + IntToStr(k) + '"', Cevap) > 0)
+    {
+      G_Ad = Clomosy.CLParseJSON(Cevap, IntToStr(k) + '.gorunenAd');
+      if (G_Ad == PG_AktifAd)
+      {
+         EdtMailPG.Text = Clomosy.CLParseJSON(Cevap, IntToStr(k) + '.kullaniciAdi');
+         EdtSifrePG.Text = Clomosy.CLParseJSON(Cevap, IntToStr(k) + '.sifre');
+      }
+    }
+  }
+}
+
+void IlkSayacGeldi;
+{
+  if (RestPG.Response == 'null') { SayacPG = 0; }
+  else { SayacPG = StrToInt(RestPG.Response); }
+  RestPG.Free; RestPG = Nil;
+
+  if (SayacPG > 0)
+  {
+    RestPG = TclRest.Create;
+    RestPG.Accept = 'application/json';
+    RestPG.ContentType = 'application/json';
+    RestPG.BaseURL = FB_URL_PG + 'USERS.json';
+    RestPG.Method = rmGet;
+    RestPG.OnCompleted = 'IlkKullanicilariDoldur';
+    RestPG.ExecuteAsync;
+  }
+}
+
+void AcProfilGuncelleFormu;
+{
+  FB_URL_PG = 'https://replate-c29bb-default-rtdb.europe-west1.firebasedatabase.app/';
+  
+  PGForm = TclForm.Create(Self);
+  PGForm.SetFormColor('#0F172A', '', clGNone);
+  PGForm.BtnGoBack.Visible = True;
+  PGForm.BtnFormMenu.Visible = False;
+
+  TRPG('Bi%lgi%leri%mi% Güncelle');
+  LblBaslikPG = PGForm.AddNewProLabel(PGForm, 'LblBaslikPG', TRSonucPG);
+  LblBaslikPG.Align = alTop; LblBaslikPG.Height = 50; LblBaslikPG.Margins.Top = 15;
+  LblBaslikPG.clProSettings.FontSize = 20;
+  LblBaslikPG.clProSettings.FontColor = clAlphaColor.clHexToColor('#F9FAFB');
+  LblBaslikPG.clProSettings.FontHorzAlign = palCenter;
+  LblBaslikPG.clProSettings.TextSettings.Font.Style = [fsBold];
+  LblBaslikPG.SetclProSettings(LblBaslikPG.clProSettings);
+
+  PnlMain = PGForm.AddNewProPanel(PGForm, 'PnlMain');
+  PnlMain.Align = alCenter;
+  PnlMain.Width = 320; PnlMain.Height = 400;
+  PnlMain.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#1E293B');
+  PnlMain.clProSettings.BorderColor = clAlphaColor.clHexToColor('#334155');
+  PnlMain.clProSettings.BorderWidth = 1;
+  PnlMain.clProSettings.RoundHeight = 18; PnlMain.clProSettings.RoundWidth = 18;
+  PnlMain.SetclProSettings(PnlMain.clProSettings);
+
+  LblAdPG = PGForm.AddNewProLabel(PnlMain, 'LblAdPG', 'Ad Soyad / Kurum Adı');
+  LblAdPG.Align = alTop; LblAdPG.Height = 18; LblAdPG.Margins.Top = 20; LblAdPG.Margins.Left = 20;
+  LblAdPG.clProSettings.FontSize = 12; LblAdPG.clProSettings.FontColor = clAlphaColor.clHexToColor('#94A3B8');
+  LblAdPG.SetclProSettings(LblAdPG.clProSettings);
+
+  EdtAdPG = PGForm.AddNewProEdit(PnlMain, 'EdtAdPG', '');
+  EdtAdPG.Text = PG_AktifAd; 
+  EdtAdPG.Align = alTop; EdtAdPG.Height = 44; EdtAdPG.Margins.Top = 4; EdtAdPG.Margins.Left = 20; EdtAdPG.Margins.Right = 20;
+  EdtAdPG.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#0F172A');
+  EdtAdPG.clProSettings.FontColor = clAlphaColor.clHexToColor('#F8FAFC');
+  EdtAdPG.clProSettings.BorderColor = clAlphaColor.clHexToColor('#334155');
+  EdtAdPG.clProSettings.BorderWidth = 1; EdtAdPG.clProSettings.RoundHeight = 10; EdtAdPG.clProSettings.RoundWidth = 10;
+  EdtAdPG.SetclProSettings(EdtAdPG.clProSettings);
+
+  LblMailPG = PGForm.AddNewProLabel(PnlMain, 'LblMailPG', 'E-posta');
+  LblMailPG.Align = alTop; LblMailPG.Height = 18; LblMailPG.Margins.Top = 15; LblMailPG.Margins.Left = 20;
+  LblMailPG.clProSettings.FontSize = 12; LblMailPG.clProSettings.FontColor = clAlphaColor.clHexToColor('#94A3B8');
+  LblMailPG.SetclProSettings(LblMailPG.clProSettings);
+
+  EdtMailPG = PGForm.AddNewProEdit(PnlMain, 'EdtMailPG', '');
+  EdtMailPG.Align = alTop; EdtMailPG.Height = 44; EdtMailPG.Margins.Top = 4; EdtMailPG.Margins.Left = 20; EdtMailPG.Margins.Right = 20;
+  EdtMailPG.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#0F172A');
+  EdtMailPG.clProSettings.FontColor = clAlphaColor.clHexToColor('#F8FAFC');
+  EdtMailPG.clProSettings.BorderColor = clAlphaColor.clHexToColor('#334155');
+  EdtMailPG.clProSettings.BorderWidth = 1; EdtMailPG.clProSettings.RoundHeight = 10; EdtMailPG.clProSettings.RoundWidth = 10;
+  EdtMailPG.SetclProSettings(EdtMailPG.clProSettings);
+
+  TRPG('S%i%fre');
+  LblSifrePG = PGForm.AddNewProLabel(PnlMain, 'LblSifrePG', TRSonucPG);
+  LblSifrePG.Align = alTop; LblSifrePG.Height = 18; LblSifrePG.Margins.Top = 15; LblSifrePG.Margins.Left = 20;
+  LblSifrePG.clProSettings.FontSize = 12;
+  LblSifrePG.clProSettings.FontColor = clAlphaColor.clHexToColor('#94A3B8');
+  LblSifrePG.SetclProSettings(LblSifrePG.clProSettings);
+
+  EdtSifrePG = PGForm.AddNewProEdit(PnlMain, 'EdtSifrePG', '');
+  EdtSifrePG.Align = alTop; EdtSifrePG.Height = 44; EdtSifrePG.Margins.Top = 4; EdtSifrePG.Margins.Left = 20; EdtSifrePG.Margins.Right = 20;
+  EdtSifrePG.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#0F172A');
+  EdtSifrePG.clProSettings.FontColor = clAlphaColor.clHexToColor('#F8FAFC');
+  EdtSifrePG.clProSettings.BorderColor = clAlphaColor.clHexToColor('#334155');
+  EdtSifrePG.clProSettings.BorderWidth = 1; EdtSifrePG.clProSettings.RoundHeight = 10; EdtSifrePG.clProSettings.RoundWidth = 10;
+  EdtSifrePG.SetclProSettings(EdtSifrePG.clProSettings);
+
+  BtnKaydet = PGForm.AddNewProButton(PnlMain, 'BtnKaydet', 'KAYDET');
+  BtnKaydet.Align = alTop; BtnKaydet.Height = 48; BtnKaydet.Margins.Top = 25; BtnKaydet.Margins.Left = 20; BtnKaydet.Margins.Right = 20;
+  BtnKaydet.clProSettings.BackgroundColor = clAlphaColor.clHexToColor('#10B981'); 
+  BtnKaydet.clProSettings.FontColor = clAlphaColor.clWhite;
+  BtnKaydet.clProSettings.FontSize = 15;
+  BtnKaydet.clProSettings.RoundHeight = 12; BtnKaydet.clProSettings.RoundWidth = 12; BtnKaydet.clProSettings.BorderWidth = 0;
+  BtnKaydet.clProSettings.TextSettings.Font.Style = [fsBold];
+  BtnKaydet.SetclProSettings(BtnKaydet.clProSettings);
+
+  PGForm.AddNewEvent(BtnKaydet, tbeOnClick, 'KaydetTiklandi');
+
+  RestPG = TclRest.Create;
+  RestPG.Accept = 'application/json';
+  RestPG.ContentType = 'application/json';
+  RestPG.BaseURL = FB_URL_PG + 'SAYACUSER.json';
+  RestPG.Method = rmGet;
+  RestPG.OnCompleted = 'IlkSayacGeldi';
+  RestPG.ExecuteAsync;
+
+  PGForm.Run;
+}
